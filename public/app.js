@@ -1,4 +1,4 @@
-import {initial,clone,LABELS,HAND,legal,apply,canPromote,forced,validatePlan,resolve,cpuPlan} from '/engine.js';
+import {initial,clone,LABELS,HAND,legal,reservable,projectReservation,apply,canPromote,forced,validatePlan,resolve,cpuPlan} from '/engine.js';
 const $=id=>document.getElementById(id);
 let game=initial(),side=0,mode='cpu',started=false,draft=[],selection=null,doubleActive=false,locked=false,passing=false,resolving=false,deadline=null,cpu=null,cpuAt=null,room=null,offset=0,polling=false,submitting=false,setupSide=0,pendingPromotion=null,confirmAction=null,lastErrorAt=0;
 const name=s=>s===side?'あなた':mode==='cpu'?'練習相手':'相手';
@@ -6,7 +6,8 @@ const coord=i=>`${9-i%9}${'一二三四五六七八九'[Math.floor(i/9)]}`;
 const toast=message=>{$('toast').textContent=message;$('toast').classList.add('visible');clearTimeout(toast.timer);toast.timer=setTimeout(()=>$('toast').classList.remove('visible'),3300);};
 const open=id=>{if(!$(id).open)$(id).showModal();};
 const canAct=()=>started&&!locked&&!resolving&&game.winner===null&&(!room||room.joined);
-const preview=()=>{const p=clone(game);if(!locked)for(const m of draft)apply(p,side,m);return p;};
+const preview=()=>{const p=clone(game);if(!locked)for(const m of draft)projectReservation(p,side,m);return p;};
+function draftDetails(){const p=clone(game);return draft.map(m=>{const detail={m,t:m.drop||p.board[m.from]?.t||'P',conditional:!legal(p,side,m)};projectReservation(p,side,m);return detail;});}
 function pieceHTML(p){return `<span class="piece ${p.s!==side?'enemy ':''}${p.t.startsWith('+')?'promoted':''}"><span>${LABELS[p.t]}</span></span>`;}
 function renderBoard(){
  const p=preview();$('board').classList.toggle('resolving',resolving);$('board').innerHTML='';
@@ -15,7 +16,7 @@ function renderBoard(){
  $('ranks').innerHTML=(side===0?'一二三四五六七八九':'九八七六五四三二一').split('').map(v=>`<span>${v}</span>`).join('');
  for(const i of indices){const cell=document.createElement('button');cell.className='square';cell.setAttribute('role','gridcell');cell.dataset.index=i;const v=p.board[i];cell.setAttribute('aria-label',`${coord(i)}${v?' '+name(v.s)+'の'+LABELS[v.t]:' 空きマス'}`);cell.innerHTML=v?pieceHTML(v):'';cell.disabled=!canAct();
   if(selection?.from===i)cell.classList.add('selected');
-  if(selection&&canAct()&&legal(p,side,{...selection,to:i}))cell.classList.add('legal');
+  if(selection&&canAct()&&reservable(p,side,{...selection,to:i})){const conditional=!legal(p,side,{...selection,to:i});cell.classList.add(conditional?'conditional':'legal');if(conditional)cell.setAttribute('aria-label',cell.getAttribute('aria-label')+' 条件付き予約');}
   if(game.last.some(e=>e.ok&&e.to===i))cell.classList.add('last-move');
   if(draft.some(m=>m.to===i))cell.classList.add('planned');cell.onclick=()=>pick(i);$('board').append(cell);
  }
@@ -35,7 +36,8 @@ function render(){
  $('think-step').classList.toggle('current',!resolving);$('move-step').classList.toggle('current',resolving);
  const readyOther=room?room.ready[1-side]:cpu!==null;
  $('my-ready').classList.toggle('ready',locked);$('their-ready').classList.toggle('ready',readyOther);$('my-ready-text').textContent=locked?'確定済み':draft.length?'選択中':'未選択';$('their-ready-text').textContent=readyOther?'確定済み':started?'思考中':'待機中';
- const list=$('plan-list');if(draft.length)list.innerHTML=draft.map((m,i)=>{const p=m.drop?m.drop:game.board[m.from]?.t||preview().board[m.to]?.t||'P';return `<div class="plan-move"><small>0${i+1}</small><b>${LABELS[p]}</b><span>${coord(m.to)}${m.drop?' 打':m.promote?' 成':''}</span></div>`;}).join('');else list.innerHTML=`<div class="empty-plan"><span>${passing?'休':locked?'✓':'一'}</span><p>${passing?'このターンを、見送る。':locked?'一手を、確定しました。':'一手を、選びましょう。'}</p><small>${passing?'パスを確定してください':locked?'相手の選択を待っています':'駒 → 移動先 の順にタップ'}</small></div>`;
+ const details=draftDetails();
+ const list=$('plan-list');if(draft.length)list.innerHTML=details.map(({m,t,conditional},i)=>`<div class="plan-move"><small>0${i+1}</small><b>${LABELS[t]}</b><span>${coord(m.to)}${m.drop?' 打':m.promote?' 成':''}</span>${conditional?'<small class="conditional-label">条件付き</small>':''}</div>`).join('');else list.innerHTML=`<div class="empty-plan"><span>${passing?'休':locked?'✓':'一'}</span><p>${passing?'このターンを、見送る。':locked?'一手を、確定しました。':'一手を、選びましょう。'}</p><small>${passing?'パスを確定してください':locked?'相手の選択を待っています':'駒 → 移動先 の順にタップ'}</small></div>`;
  $('confirm').innerHTML=!started?'対局をはじめる <span>→</span>':ended?'対局は終了しました':resolving?'駒を移動しています':room&&!room.joined?'ルームコードを表示 <span>↗</span>':locked?'相手の選択を待っています':passing?'パスを確定する <span>→</span>':doubleActive?`二度打ちを確定 (${draft.length}/2) <span>→</span>`:'この一手を確定 <span>→</span>';
  $('confirm').disabled=ended||resolving||locked||(started&&(!room||room.joined)&&!passing&&draft.length!==(doubleActive?2:1));
  $('undo').disabled=!canAct()||(!draft.length&&!selection&&!passing);$('pass').disabled=!canAct();$('resign').disabled=!canAct()&&!locked||!started||ended||resolving||room&&!room.joined;
@@ -43,7 +45,7 @@ function render(){
  $('double').disabled=!canAct()||!hasDouble||game.doubleUsed;$('double').classList.toggle('enabled',hasDouble&&!game.doubleUsed);$('double').classList.toggle('activated',doubleActive);
  $('double-help').textContent=!hasDouble?'開始後手だけが使えます':game.doubleUsed?'この対局では使用済み':doubleActive?'2手目を予約してください':'タップして2手を予約';$('double-status').textContent=!hasDouble?'対象外':game.doubleUsed?'使用済み':doubleActive?'選択中':'残り1回';
  $('cpu-mode').classList.toggle('active',mode==='cpu');$('online-mode').classList.toggle('active',mode==='online');
- $('board-status').textContent=room&&!room.joined?`ルーム ${room.code} · 相手の参加を待っています` :ended?`${name(game.winner)}の勝利。おつかれさまでした。`:resolving?'予約手を実行しています。':locked?'選択を確定しました。相手にはまだ見えません。':doubleActive?`二度打ち：${draft.length}/2 手を予約。同じ駒をもう一度動かすこともできます。`:'◇ 駒を選ぶと、移動できるマスが表示されます。';
+ $('board-status').textContent=room&&!room.joined?`ルーム ${room.code} · 相手の参加を待っています` :ended?`${name(game.winner)}の勝利。おつかれさまでした。`:resolving?'予約手を実行しています。':details.some(d=>d.conditional)?'条件付き予約：実行時に動けなければ、元の位置に留まります。':locked?'選択を確定しました。相手にはまだ見えません。':selection?'緑の丸は現在移動可能、点線のマスは条件付きで予約できます。':doubleActive?`二度打ち：${draft.length}/2 手を予約。同じ駒をもう一度動かすこともできます。`:'◇ 駒を選ぶと、移動可能なマスと条件付きの予約先が表示されます。';
  renderHistory();renderClock();
 }
 function renderHistory(){
@@ -54,7 +56,7 @@ function renderHistory(){
 function renderClock(){const remaining=!started||!deadline?30:game.winner!==null||resolving?0:Math.max(0,Math.ceil((deadline-Date.now()-offset)/1000));$('seconds').textContent=String(remaining).padStart(2,'0');$('timer-bar').style.width=`${remaining/30*100}%`;$('timer-bar').classList.toggle('urgent',remaining<=8);}
 function pick(i){
  if(!canAct())return;if(draft.length>=(doubleActive?2:1)){toast(doubleActive?'2手を予約しました。確定するか、選び直してください。':'一手を予約しました。確定するか、二度打ちを選んでください。');return;}
- const p=preview();if(selection&&legal(p,side,{...selection,to:i})){
+ const p=preview();if(selection&&reservable(p,side,{...selection,to:i})){
   const m={...selection,to:i};const piece=selection.drop?null:p.board[selection.from];
   if(piece&&canPromote(piece,m.from,i)&&!forced(piece,i)){pendingPromotion=m;open('promote-dialog');return;}addMove(m);return;
  }
