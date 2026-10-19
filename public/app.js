@@ -95,7 +95,7 @@ function newSetup(nextMode){if(started&&game.winner===null)ask('対局を終了�
 $('confirm-yes').onclick=async()=>{const action=confirmAction;confirmAction=null;$('confirm-dialog').close();try{await action?.();}catch(e){toast(e.message);}};$('confirm-no').onclick=()=>{confirmAction=null;$('confirm-dialog').close();};
 $('cpu-mode').onclick=()=>newSetup('cpu');$('online-mode').onclick=()=>{if(room&&!room.joined){open('room-dialog');return;}newSetup('online');};$('new-game').onclick=()=>newSetup(mode);
 document.querySelectorAll('[data-side]').forEach(b=>b.onclick=()=>{setupSide=Number(b.dataset.side);document.querySelectorAll('[data-side]').forEach(x=>x.classList.toggle('selected',x===b));});
-$('start-cpu').onclick=()=>{$('setup-dialog').close();startCPU();};$('rules').onclick=()=>open('rules-dialog');
+$('start-cpu').onclick=()=>{$('setup-dialog').close();startCPU();};$('rules').onclick=()=>open('rules-dialog');$('guide-details').onclick=()=>open('rules-dialog');
 document.querySelectorAll('.dialog-close,.dialog-dismiss').forEach(b=>b.onclick=()=>b.closest('dialog').close());
 $('play-again').onclick=()=>{$('end-dialog').close();setup(mode);};
 $('resign').onclick=()=>ask('この一局を、投了しますか？','投了すると相手の勝利で対局が終了します。',async()=>{if(room){const next=await request(`/api/rooms/${room.code}/resign`,{});await accept(next);}else{game.winner=1-side;game.resigned=side;render();showResult();}});
