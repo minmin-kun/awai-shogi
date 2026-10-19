@@ -59,8 +59,24 @@ export function apply(s,side,m){
 export function projectReservation(s,side,m){
  return applyMove(s,side,m,true);
 }
+export function failureReason(s,side,m){
+ if(!m||!Number.isInteger(m.to)||m.to<0||m.to>80)return {reasonCode:'invalid',reason:'指定したマスが不正です'};
+ if(m.drop){
+  if(!(s.hands[side][m.drop]>0))return {reasonCode:'inventory',reason:'打つための持ち駒がありません'};
+  if(s.board[m.to])return {reasonCode:'occupied',reason:'駒を打つマスが空いていません'};
+  if(forced({t:m.drop,s:side},m.to))return {reasonCode:'dead_drop',reason:'行き所のない駒は打てません'};
+  if(m.drop==='P'&&s.board.some((p,i)=>p?.s===side&&p.t==='P'&&i%9===m.to%9))return {reasonCode:'nifu',reason:'同じ筋に歩があり、二歩になります'};
+ }else{
+  const p=s.board[m.from];
+  if(!p){const exists=m.id!=null&&s.board.some(v=>v?.id===m.id);return exists?{reasonCode:'source_missing',reason:'予約元のマスに駒がありません'}:{reasonCode:'captured',reason:'予約した駒が取られています'};}
+  if(p.s!==side||(m.id!=null&&p.id!==m.id)){if(m.id!=null&&!s.board.some(v=>v?.id===m.id))return {reasonCode:'captured',reason:'予約した駒が取られています'};return {reasonCode:'replaced',reason:'予約元の駒が別の駒に変わっています'};}
+  if(s.board[m.to]?.s===side)return {reasonCode:'friendly_target',reason:'移動先に自分の駒があります'};
+  if(reservable(s,side,m))return {reasonCode:'blocked',reason:'進路が駒で塞がっています'};
+ }
+ return {reasonCode:'movement',reason:'この駒では指定した動きができません'};
+}
 function applyMove(s,side,m,reservation){
- if(!checkMove(s,side,m,reservation))return {ok:false,capture:false};
+ if(!checkMove(s,side,m,reservation))return {ok:false,capture:false,...failureReason(s,side,m)};
  let p;
  if(m.drop){s.hands[side][m.drop]--;p={id:s.nextId++,t:m.drop,s:side};}
  else {p=s.board[m.from];s.board[m.from]=null;}

@@ -3,8 +3,21 @@ const fail=(text,status=400)=>{const e=new Error(text);e.status=status;throw e;}
 const token=()=>crypto.randomUUID()+crypto.randomUUID();
 const hash=async t=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(t)))).map(x=>x.toString(16).padStart(2,'0')).join('');
 const json=(data,status=200)=>new Response(JSON.stringify(data),{status,headers:{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'}});
-function settle(room,now){if(room.joined&&room.game.winner===null&&(room.plans.every(p=>p!==null)||now>=room.deadline)){room.game=resolve(room.game,room.plans.map(p=>p||[]));room.plans=[null,null];room.deadline=now+30000;return true;}return false;}
-function view(r,side){return {code:r.code,version:r.version||0,side,game:r.game,joined:r.joined,ready:r.plans.map(p=>p!==null),ownPlan:r.plans[side],deadline:r.deadline,serverTime:Date.now()};}
+function prepareRound(room,now){room.deadlines=[null,null];room.readyBy=now+10000;room.deadline=null;}
+function settle(room,now){
+ if(!room.joined||room.game.winner!==null)return false;
+ // Preserve the running clock of rooms created by the previous version.
+ if(!room.deadlines){room.deadlines=[room.deadline,room.deadline];room.readyBy=now+10000;}
+ let changed=false;
+ for(let side=0;side<2;side++){
+  // A disconnected client cannot hold the game at the animation barrier forever.
+  if(room.deadlines[side]===null&&now>=room.readyBy){room.deadlines[side]=room.readyBy+30000;changed=true;}
+  if(room.plans[side]===null&&room.deadlines[side]!==null&&now>=room.deadlines[side]){room.plans[side]=[];changed=true;}
+ }
+ if(room.plans.every(p=>p!==null)){room.game=resolve(room.game,room.plans);room.plans=[null,null];prepareRound(room,now);changed=true;}
+ return changed;
+}
+function view(r,side){return {code:r.code,version:r.version||0,side,game:r.game,joined:r.joined,ready:r.plans.map(p=>p!==null),ownPlan:r.plans[side],deadline:r.deadlines?r.deadlines[side]:r.deadline,serverTime:Date.now()};}
 export async function api(request,store){
  try{
   const url=new URL(request.url),path=url.pathname;
@@ -13,7 +26,7 @@ export async function api(request,store){
    const side=input.side===1?1:0;const room={code,game:initial(),joined:false,keys:[null,null],plans:[null,null],deadline:null};room.keys[side]=await hash(t);
    await store.create(code,room);return json({...view(room,side),token:t},201);
   }
-  const match=path.match(/^\/api\/rooms\/([A-F0-9]{8})(\/join|\/plan|\/resign)?$/);if(!match)fail('ルームが見つかりません。',404);
+  const match=path.match(/^\/api\/rooms\/([A-F0-9]{8})(\/join|\/ready|\/plan|\/resign)?$/);if(!match)fail('ルームが見つかりません。',404);
   const code=match[1],action=match[2]||'';
   if(request.method!=='GET'&&request.method!=='POST')fail('許可されていない操作です。',405);
   const input=request.method==='POST'?await request.json():null;
@@ -24,13 +37,18 @@ export async function api(request,store){
    const r=record.room;let side=key?r.keys.indexOf(key):-1;let changed=false;
    if(action==='/join'&&request.method==='POST'){
     if(r.joined)fail('このルームはすでに対局中です。',409);
-    side=r.keys.indexOf(null);r.keys[side]=joinKey;r.joined=true;r.deadline=Date.now()+30000;changed=true;
+    side=r.keys.indexOf(null);r.keys[side]=joinKey;r.joined=true;prepareRound(r,Date.now());changed=true;
    }else{
     if(side<0)fail('このルームへの参加情報がありません。',403);
     changed=settle(r,Date.now());
-    if(action==='/plan'&&request.method==='POST'){
+    if(action==='/ready'&&request.method==='POST'){
      if(!r.joined||r.game.winner!==null)fail('対局を開始できません。',409);
-     if(input.round!==r.game.round){if(changed&&await store.save(code,r,record.revision))return json(view(r,side));fail('ターンが進みました。盤面を確認してください。',409);}
+     if(input.round!==r.game.round)fail('ターンが進みました。盤面を確認してください。',409);
+     if(r.deadlines[side]===null){r.deadlines[side]=Date.now()+30000;changed=true;}
+    }else if(action==='/plan'&&request.method==='POST'){
+     if(!r.joined||r.game.winner!==null)fail('対局を開始できません。',409);
+     if(input.round!==r.game.round){if(changed){r.version=record.revision+1;if(await store.save(code,r,record.revision))return json(view(r,side));}fail('ターンが進みました。盤面を確認してください。',409);}
+     if(r.deadlines[side]===null)fail('盤面の表示準備が完了していません。',409);
      if(r.plans[side]!==null)fail('このターンは確定済みです。',409);
      r.plans[side]=validatePlan(r.game,side,input.plan);changed=true;settle(r,Date.now());
     }else if(action==='/resign'&&request.method==='POST'){
