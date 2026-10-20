@@ -3,12 +3,9 @@ const $=id=>document.getElementById(id);
 const mobileGuide=matchMedia('(max-width:640px)');
 $('guide-content').open=!mobileGuide.matches;
 mobileGuide.addEventListener('change',()=>{$('guide-content').open=!mobileGuide.matches;});
-let autoConfirm=true;
-try{autoConfirm=localStorage.getItem('awai-auto-confirm')!=='off';}catch{}
-$('auto-confirm').checked=autoConfirm;
-$('auto-confirm').onchange=()=>{autoConfirm=$('auto-confirm').checked;try{localStorage.setItem('awai-auto-confirm',autoConfirm?'on':'off');}catch{}render();};
 let game=initial(),side=0,mode='cpu',started=false,draft=[],selection=null,doubleActive=false,locked=false,passing=false,resolving=false,deadline=null,cpu=null,cpuAt=null,room=null,offset=0,polling=false,submitting=false,startingClock=false,setupSide=0,pendingPromotion=null,confirmAction=null,lastErrorAt=0;
 let inspectedPiece=null,connectionState='online',lastContact=Date.now();
+let gameSession=0;
 const name=s=>s===side?'あなた':mode==='cpu'?'練習相手':'相手';
 const coord=i=>`${9-i%9}${'一二三四五六七八九'[Math.floor(i/9)]}`;
 const toast=message=>{$('toast').textContent=message;$('toast').classList.add('visible');clearTimeout(toast.timer);toast.timer=setTimeout(()=>$('toast').classList.remove('visible'),3300);};
@@ -34,7 +31,29 @@ function renderBoard(){
  for(const [id,s]of [['my-hand',side],['their-hand',1-side]]){
   const el=$(id);el.innerHTML='';for(const t of HAND){const n=p.hands[s][t]||0;if(!n)continue;const b=document.createElement('button');b.className='hand-piece'+(selection?.drop===t&&s===side?' selected':'');b.innerHTML=pieceHTML({t,s})+`<b>${n}</b>`;b.setAttribute('aria-label',`${LABELS[t]} ${n}枚を打つ`);b.disabled=resolving;b.onclick=()=>{inspectedPiece={t,s};renderPieceHelp();if(s!==side||!canAct())return;if(draft.length>=(doubleActive?2:1))return toast('選び直してから駒を選んでください。');selection={drop:t};passing=false;render();};el.append(b);}if(!el.children.length)el.innerHTML='<span class="hand-empty">なし</span>';
  }
+ updateNearConfirm();
 }
+function updateNearConfirm(){
+ const button=$('near-confirm');
+ button.hidden=!canAct()||passing||draft.length!==(doubleActive?2:1);
+ if(button.hidden)return;
+ button.textContent=doubleActive?'2手を確定':'確定 ✓';
+ button.setAttribute('aria-label',doubleActive?'2手の予約をまとめて確定':`${coord(draft.at(-1).to)}への指し手を確定`);
+ positionNearConfirm();
+}
+function positionNearConfirm(){
+ const button=$('near-confirm');if(button.hidden||!draft.length)return;
+ const target=$('board').querySelector(`[data-index="${draft.at(-1).to}"]`);if(!target)return;
+ const frame=button.parentElement,frameRect=frame.getBoundingClientRect(),cellRect=target.getBoundingClientRect();
+ const originX=frameRect.left+frame.clientLeft,originY=frameRect.top+frame.clientTop;
+ const width=button.offsetWidth,height=button.offsetHeight;
+ let x=cellRect.right-originX-12,y=cellRect.top-originY-height+8;
+ const below=y<4;if(below)y=cellRect.bottom-originY-8;
+ x=Math.max(4,Math.min(x,frame.clientWidth-width-4));y=Math.max(4,Math.min(y,frame.clientHeight-height-4));
+ button.style.left=`${x}px`;button.style.top=`${y}px`;button.dataset.placement=below?'below':'above';
+}
+const confirmPlacementObserver=new ResizeObserver(positionNearConfirm);
+confirmPlacementObserver.observe($('board'));confirmPlacementObserver.observe($('near-confirm'));
 function render(){
  renderBoard();const ownFirst=game.leader===side,opponent=mode==='cpu'?'練習相手':'相手';
  $('round').textContent=`第 ${game.round} ターン`;$('opponent-name').textContent=opponent;$('top-name').textContent=opponent;$('top-sub').textContent=mode==='cpu'?'CPU':'PLAYER';
@@ -52,8 +71,8 @@ function render(){
  $('my-ready').classList.toggle('ready',locked);$('their-ready').classList.toggle('ready',readyOther);$('my-ready-text').textContent=locked?'確定済み':draft.length?'選択中':'未選択';$('their-ready-text').textContent=readyOther?'確定済み':started?'思考中':'待機中';
  const details=draftDetails();
  const list=$('plan-list');if(draft.length)list.innerHTML=details.map(({m,t,conditional},i)=>`<div class="plan-move"><small>0${i+1}</small><b>${LABELS[t]}</b><span>${coord(m.to)}${m.drop?' 打':m.promote?' 成':''}</span>${conditional?'<small class="conditional-label">条件付き</small>':''}</div>`).join('');else list.innerHTML=`<div class="empty-plan"><span>${passing?'休':locked?'✓':'一'}</span><p>${passing?'このターンを、見送る。':locked?'一手を、確定しました。':'一手を、選びましょう。'}</p><small>${passing?'パスを確定してください':locked?'相手の選択を待っています':'駒 → 移動先 の順にタップ'}</small></div>`;
- $('confirm').innerHTML=!started?'対局をはじめる <span>→</span>':ended?'対局は終了しました':resolving?'駒を移動しています':room&&!room.joined?'ルームコードを表示 <span>↗</span>':locked?'相手の選択を待っています':passing?'パスを確定する <span>→</span>':autoConfirm&&draft.length!==(doubleActive?2:1)?doubleActive&&draft.length===1?'2手目を選ぶと自動で確定':'移動先を選ぶと自動で確定':doubleActive?`二度打ちを確定 (${draft.length}/2) <span>→</span>`:'この一手を確定 <span>→</span>';
- $('guide-confirm-rule').textContent=autoConfirm?'移動先を選ぶと自動で確定。両者が確定すると移動開始。時間切れはパス。':'指し手を予約し、確定ボタンで送信。両者が確定すると移動開始。時間切れはパス。';$('double').setAttribute('aria-pressed',String(doubleActive));$('auto-confirm-note').textContent=autoConfirm?'移動先を選ぶと確定します。二度打ちは1手目を選ぶ前にONにしてください。':'移動先を選んだ後、確定ボタンで送信します。';
+ $('confirm').innerHTML=!started?'対局をはじめる <span>→</span>':ended?'対局は終了しました':resolving?'駒を移動しています':room&&!room.joined?'ルームコードを表示 <span>↗</span>':locked?'相手の選択を待っています':passing?'パスを確定する <span>→</span>':doubleActive?`二度打ちを確定 (${draft.length}/2) <span>→</span>`:'この一手を確定 <span>→</span>';
+ $('double').setAttribute('aria-pressed',String(doubleActive));
  $('confirm').disabled=ended||resolving||locked||waitingClock||(started&&(!room||room.joined)&&!passing&&draft.length!==(doubleActive?2:1));
  $('undo').disabled=!canAct()||(!draft.length&&!selection&&!passing);$('pass').disabled=!canAct();$('resign').disabled=!canAct()&&!locked||!started||ended||resolving||room&&!room.joined;
  $('undo').textContent=draft.length===2?'↶ 2手目を取り消す':draft.length===1?'↶ 1手目を取り消す':'↶ 選び直す';
@@ -62,7 +81,7 @@ function render(){
  $('double').disabled=!canAct()||!hasDouble||game.doubleUsed;$('double').classList.toggle('enabled',hasDouble&&!game.doubleUsed);$('double').classList.toggle('activated',doubleActive);
  $('double-help').textContent=!hasDouble?'開始後手だけが使えます':game.doubleUsed?'この対局では使用済み':doubleActive?(draft.length===2?'2手の予約が揃いました':'2手目を予約してください'):'タップして2手を予約';$('double-status').textContent=!hasDouble?'対象外':game.doubleUsed?'使用済み':doubleActive?'選択中':'残り1回';
  $('cpu-mode').classList.toggle('active',mode==='cpu');$('online-mode').classList.toggle('active',mode==='online');
- $('board-status').textContent=room&&!room.joined?`ルーム ${room.code} · 相手の参加を待っています` :ended?`${name(game.winner)}の勝利。おつかれさまでした。`:resolving?'予約手を実行しています。':details.some(d=>d.conditional)?'条件付き予約：半透明の駒は予約です。実行時に動けなければ元の位置に留まります。':locked?'選択を確定しました。半透明の駒と矢印は予約です。':selection?'緑の丸は現在移動可能、点線のマスは条件付きで予約できます。':doubleActive&&draft.length===1?'2手目は半透明の予約駒、または別の駒を選んでください。':draft.length?'半透明の駒と番号付きの矢印は予約です。実際の駒はまだ動いていません。':doubleActive?`二度打ち：${draft.length}/2 手を予約。同じ駒をもう一度動かすこともできます。`:'◇ 駒を選ぶと、移動可能なマスと条件付きの予約先が表示されます。';
+ $('board-status').textContent=room&&!room.joined?`ルーム ${room.code} · 相手の参加を待っています` :ended?`${name(game.winner)}の勝利。おつかれさまでした。`:resolving?'予約手を実行しています。':locked?'選択を確定しました。半透明の駒と矢印は予約です。':selection?'緑の丸は現在移動可能、点線のマスは条件付きで予約できます。':doubleActive&&draft.length===1?'2手目は半透明の予約駒、または別の駒を選んでください。':draft.length?details.some(d=>d.conditional)?'移動先の近くの「確定」で送信。実行時に動けなければ元の位置に留まります。':'移動先の近くの「確定」を押すと送信します。半透明の駒は予約です。':doubleActive?`二度打ち：${draft.length}/2 手を予約。同じ駒をもう一度動かすこともできます。`:'◇ 駒と移動先を選ぶと、移動先の近くに「確定」が表示されます。';
  renderHistory();renderClock();renderPieceHelp();renderConnection();
 }
 function movementDiagram(info,owner){
@@ -104,21 +123,23 @@ function pick(i){
  }
  inspect();if(p.board[i]?.s===side){selection={from:i,id:p.board[i].id};passing=false;render();}else{selection=null;render();}
 }
-function addMove(m){draft.push(m);selection=null;passing=false;render();if(autoConfirm&&draft.length===(doubleActive?2:1))void commit();}
+function addMove(m){draft.push(m);selection=null;passing=false;render();}
 $('promote-yes').onclick=()=>{const m=pendingPromotion;pendingPromotion=null;$('promote-dialog').close();if(canAct()&&m)addMove({...m,promote:true});};$('promote-no').onclick=()=>{const m=pendingPromotion;pendingPromotion=null;$('promote-dialog').close();if(canAct()&&m)addMove(m);};
 $('undo').onclick=()=>{if(draft.length)draft.pop();selection=null;passing=false;render();};
 $('clear-plan').onclick=()=>{draft=[];selection=null;passing=false;render();};
-$('pass').onclick=()=>{if(!canAct())return;draft=[];selection=null;doubleActive=false;passing=true;render();if(autoConfirm)void commit();};
+$('pass').onclick=()=>{if(!canAct())return;draft=[];selection=null;doubleActive=false;passing=true;render();};
 $('double').onclick=()=>{if(!canAct()||side!==game.initialSecond||game.doubleUsed)return;doubleActive=!doubleActive;if(!doubleActive)draft=draft.slice(0,1);passing=false;selection=null;render();};
 function startCPU(){
+ gameSession++;
  room=null;inspectedPiece=null;sessionStorage.removeItem('awai-room');mode='cpu';side=setupSide;game=initial();started=true;draft=[];selection=null;doubleActive=false;locked=false;passing=false;resolving=false;offset=0;beginCPU();render();
 }
 function beginCPU(){deadline=Date.now()+30000;cpu=null;cpuAt=Date.now()+1800+Math.random()*2200;}
 async function animate(next){
+ const session=gameSession;
  resolving=true;selection=null;draft=[];locked=false;pendingPromotion=null;$('promote-dialog').close();doubleActive=false;passing=false;render();
  const events=next.last;
- for(const event of events){if(event.to===undefined)continue;await new Promise(r=>setTimeout(r,380));if(event.ok)apply(game,event.side,event);game.last=[event];$('board-status').textContent=`${name(event.side)}：${event.text}${event.reason?'（'+event.reason+'）':''}`;renderBoard();}
- await new Promise(r=>setTimeout(r,350));game=next;resolving=false;
+ for(const event of events){if(event.to===undefined)continue;await new Promise(r=>setTimeout(r,380));if(session!==gameSession)return;if(event.ok)apply(game,event.side,event);game.last=[event];$('board-status').textContent=`${name(event.side)}：${event.text}${event.reason?'（'+event.reason+'）':''}`;renderBoard();}
+ await new Promise(r=>setTimeout(r,350));if(session!==gameSession)return;game=next;resolving=false;
  if(mode==='cpu'&&game.winner===null)beginCPU();render();
  if(mode==='online')void ensureClock();
  if(game.winner!==null)showResult();else if(next.history.at(-1)?.swap)toast('駒を取ったため、先手・後手が交代しました。');
@@ -132,10 +153,11 @@ async function commit(){
  }catch(e){locked=false;toast(e.message);render();}finally{submitting=false;}
 }
 $('confirm').onclick=commit;
+$('near-confirm').onclick=e=>{e.preventDefault();e.stopPropagation();void commit();};
 function showResult(){for(const id of ['room-dialog','promote-dialog'])$(id).close();$('result-title').textContent=game.winner===side?'あなたの勝ちです。':'相手の勝ちです。';$('result-note').textContent=game.resigned!==undefined?`${name(game.resigned)}が投了しました。`:`${name(game.winner)}が王を取りました。`+` ${game.round-1}ターンの対局でした。`;open('end-dialog');}
 function setup(nextMode){$('cpu-settings').hidden=nextMode!=='cpu';$('online-settings').hidden=nextMode!=='online';$('room-error').textContent='';setupSide=side;document.querySelectorAll('[data-side]').forEach(b=>b.classList.toggle('selected',Number(b.dataset.side)===setupSide));open('setup-dialog');}
 function ask(title,description,action){$('confirm-title').textContent=title;$('confirm-description').textContent=description;confirmAction=action;open('confirm-dialog');}
-function newSetup(nextMode){if(started&&game.winner===null)ask('対局を終了しますか？','オンライン対局中は投了してから、新しい対局へ進みます。',async()=>{if(room?.joined)await request(`/api/rooms/${room.code}/resign`,{});started=false;room=null;sessionStorage.removeItem('awai-room');setup(nextMode);});else setup(nextMode);}
+function newSetup(nextMode){if(started&&game.winner===null)ask('対局を終了しますか？','オンライン対局中は投了してから、新しい対局へ進みます。',async()=>{if(room?.joined)await request(`/api/rooms/${room.code}/resign`,{});gameSession++;resolving=false;started=false;room=null;sessionStorage.removeItem('awai-room');setup(nextMode);});else setup(nextMode);}
 $('confirm-yes').onclick=async()=>{const action=confirmAction;confirmAction=null;$('confirm-dialog').close();try{await action?.();}catch(e){toast(e.message);}};$('confirm-no').onclick=()=>{confirmAction=null;$('confirm-dialog').close();};
 $('cpu-mode').onclick=()=>newSetup('cpu');$('online-mode').onclick=()=>{if(room&&!room.joined){open('room-dialog');return;}newSetup('online');};$('new-game').onclick=()=>newSetup(mode);
 document.querySelectorAll('[data-side]').forEach(b=>b.onclick=()=>{setupSide=Number(b.dataset.side);document.querySelectorAll('[data-side]').forEach(x=>x.classList.toggle('selected',x===b));});
@@ -152,6 +174,7 @@ async function request(path,body,auth=room?.token){
 }
 function saveRoom(){sessionStorage.setItem('awai-room',JSON.stringify({code:room.code,token:room.token}));}
 async function enter(data){
+ gameSession++;
  connectionState='online';lastContact=Date.now();inspectedPiece=null;
  room={...data};mode='online';started=true;side=data.side;game=data.game;draft=data.ownPlan||[];selection=null;doubleActive=draft.length===2;locked=data.ready[side];passing=false;resolving=false;cpu=null;cpuAt=null;offset=data.serverTime-Date.now();deadline=data.deadline;saveRoom();$('setup-dialog').close();$('share-code').textContent=data.code;render();if(!data.joined)open('room-dialog');else void ensureClock();
 }
