@@ -1,5 +1,25 @@
 export const LABELS={K:'王',R:'飛',B:'角',G:'金',S:'銀',N:'桂',L:'香',P:'歩', '+R':'龍','+B':'馬','+S':'全','+N':'圭','+L':'杏','+P':'と'};
 export const HAND=['R','B','G','S','N','L','P'];
+const goldSteps=[[-1,-1],[0,-1],[1,-1],[-1,0],[1,0],[0,1]];
+const kingSteps=[[-1,-1],[0,-1],[1,-1],[-1,0],[1,0],[-1,1],[0,1],[1,1]];
+const straightRays=[[0,-1],[-1,0],[1,0],[0,1]],diagonalRays=[[-1,-1],[1,-1],[-1,1],[1,1]];
+const pieceGuides={
+ K:{name:'王将',description:'縦・横・斜めの8方向に、1マス動けます。',steps:kingSteps,rays:[]},
+ R:{name:'飛車',description:'縦と横に、何マスでも進めます。途中の駒は飛び越せません。',steps:[],rays:straightRays,promotion:'+R'},
+ B:{name:'角行',description:'斜め4方向に、何マスでも進めます。途中の駒は飛び越せません。',steps:[],rays:diagonalRays,promotion:'+B'},
+ G:{name:'金将',description:'前3方向・左右・真後ろの6方向に、1マス動けます。斜め後ろには動けません。',steps:goldSteps,rays:[]},
+ S:{name:'銀将',description:'前3方向と斜め後ろ2方向に、1マス動けます。真横と真後ろには動けません。',steps:[[-1,-1],[0,-1],[1,-1],[-1,1],[1,1]],rays:[],promotion:'+S'},
+ N:{name:'桂馬',description:'前へ2マス、左右どちらかへ1マス進みます。途中の駒を飛び越せます。',steps:[[-1,-2],[1,-2]],rays:[],promotion:'+N'},
+ L:{name:'香車',description:'真っすぐ前に、何マスでも進めます。途中の駒は飛び越せません。',steps:[],rays:[[0,-1]],promotion:'+L'},
+ P:{name:'歩兵',description:'真っすぐ前に、1マス動けます。',steps:[[0,-1]],rays:[],promotion:'+P'},
+ '+R':{name:'龍王',description:'飛車の動きに加え、斜め4方向にも1マス動けます。',steps:[[-1,-1],[1,-1],[-1,1],[1,1]],rays:straightRays},
+ '+B':{name:'龍馬',description:'角の動きに加え、縦と横にも1マス動けます。',steps:[[0,-1],[-1,0],[1,0],[0,1]],rays:diagonalRays},
+ '+S':{name:'成銀',description:'金将と同じ動きです。前3方向・左右・真後ろに1マス動けます。',steps:goldSteps,rays:[]},
+ '+N':{name:'成桂',description:'金将と同じ動きです。桂馬のようには跳ばず、前3方向・左右・真後ろに1マス動けます。',steps:goldSteps,rays:[]},
+ '+L':{name:'成香',description:'金将と同じ動きです。前3方向・左右・真後ろに1マス動けます。',steps:goldSteps,rays:[]},
+ '+P':{name:'と金',description:'金将と同じ動きです。前3方向・左右・真後ろに1マス動けます。',steps:goldSteps,rays:[]}
+};
+export function pieceInfo(type){const info=pieceGuides[type];return info?{...info,type,label:LABELS[type],steps:info.steps.map(p=>[...p]),rays:info.rays.map(p=>[...p])}:null;}
 export function initial(){
  const board=Array(81).fill(null);let id=0;
  const put=(r,c,t,s)=>board[r*9+c]={id:++id,t,s};

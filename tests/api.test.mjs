@@ -40,3 +40,19 @@ test('disconnected animation acknowledgement has a bounded fallback',async t=>{
  t.mock.timers.tick(10000);const started=(await call(store,path,undefined,a.token)).data;assert.equal(started.deadline-Date.now(),30000);
  t.mock.timers.tick(30000);assert.equal((await call(store,path,undefined,a.token)).data.game.round,2);
 });
+test('presence distinguishes active thinking, lost heartbeat, and reconnection',async t=>{
+ t.mock.timers.enable({apis:['Date'],now:1800000000000});const {store,a,b,path}=await players();
+ let state=(await call(store,path,undefined,a.token)).data;assert.deepEqual(state.presence,['online','online']);assert.deepEqual(state.ready,[false,false]);const deadline=state.deadline;
+ t.mock.timers.tick(13000);state=(await call(store,path,undefined,a.token)).data;assert.deepEqual(state.presence,['online','disconnected']);assert.equal(state.game.round,1);assert.equal(state.deadline,deadline);
+ await call(store,path,undefined,b.token);state=(await call(store,path,undefined,a.token)).data;assert.deepEqual(state.presence,['online','online']);assert.equal(state.deadline,deadline);
+});
+test('unauthorized traffic cannot refresh a disconnected player or reveal presence',async t=>{
+ t.mock.timers.enable({apis:['Date'],now:1800000000000});const {store,a,b,path}=await players();const before=store.data.get(a.code).room.lastSeen[b.side];t.mock.timers.tick(13000);
+ assert.equal((await call(store,path,undefined,'invalid-token')).status,403);assert.equal(store.data.get(a.code).room.lastSeen[b.side],before);
+ const state=(await call(store,path,undefined,a.token)).data;assert.equal(state.presence[b.side],'disconnected');assert.equal(state.keys,undefined);assert.equal(state.plans,undefined);assert.equal(state.lastSeen,undefined);
+});
+test('presence writes are throttled and waiting rooms do not invent an opponent',async t=>{
+ t.mock.timers.enable({apis:['Date'],now:1800000000000});const store=memory();const a=(await call(store,'/api/rooms',{side:0})).data;const path=`/api/rooms/${a.code}`;assert.deepEqual(a.presence,['online','waiting']);
+ const rev=store.data.get(a.code).revision;t.mock.timers.tick(1000);await call(store,path,undefined,a.token);assert.equal(store.data.get(a.code).revision,rev);
+ t.mock.timers.tick(2000);await call(store,path,undefined,a.token);assert.equal(store.data.get(a.code).revision,rev+1);
+});

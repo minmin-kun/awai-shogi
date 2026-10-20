@@ -17,13 +17,15 @@ function settle(room,now){
  if(room.plans.every(p=>p!==null)){room.game=resolve(room.game,room.plans);room.plans=[null,null];prepareRound(room,now);changed=true;}
  return changed;
 }
-function view(r,side){return {code:r.code,version:r.version||0,side,game:r.game,joined:r.joined,ready:r.plans.map(p=>p!==null),ownPlan:r.plans[side],deadline:r.deadlines?r.deadlines[side]:r.deadline,serverTime:Date.now()};}
+function presence(r,now){return r.keys.map((key,side)=>!key?'waiting':r.lastSeen?.[side]==null?'unknown':now-r.lastSeen[side]<=12000?'online':'disconnected');}
+function touch(r,side,now){if(!r.lastSeen)r.lastSeen=[null,null];if(r.lastSeen[side]===null||now-r.lastSeen[side]>=3000){r.lastSeen[side]=now;return true;}return false;}
+function view(r,side){const now=Date.now();return {code:r.code,version:r.version||0,side,game:r.game,joined:r.joined,ready:r.plans.map(p=>p!==null),ownPlan:r.plans[side],deadline:r.deadlines?r.deadlines[side]:r.deadline,presence:presence(r,now),serverTime:now};}
 export async function api(request,store){
  try{
   const url=new URL(request.url),path=url.pathname;
   if(request.method==='POST'&&path==='/api/rooms'){
    const input=await request.json();const code=crypto.randomUUID().replaceAll('-','').slice(0,8).toUpperCase(),t=token();
-   const side=input.side===1?1:0;const room={code,game:initial(),joined:false,keys:[null,null],plans:[null,null],deadline:null};room.keys[side]=await hash(t);
+   const side=input.side===1?1:0;const room={code,game:initial(),joined:false,keys:[null,null],plans:[null,null],deadline:null,lastSeen:[null,null]};room.keys[side]=await hash(t);touch(room,side,Date.now());
    await store.create(code,room);return json({...view(room,side),token:t},201);
   }
   const match=path.match(/^\/api\/rooms\/([A-F0-9]{8})(\/join|\/ready|\/plan|\/resign)?$/);if(!match)fail('ルームが見つかりません。',404);
@@ -37,10 +39,11 @@ export async function api(request,store){
    const r=record.room;let side=key?r.keys.indexOf(key):-1;let changed=false;
    if(action==='/join'&&request.method==='POST'){
     if(r.joined)fail('このルームはすでに対局中です。',409);
-    side=r.keys.indexOf(null);r.keys[side]=joinKey;r.joined=true;prepareRound(r,Date.now());changed=true;
+    side=r.keys.indexOf(null);r.keys[side]=joinKey;r.joined=true;touch(r,side,Date.now());prepareRound(r,Date.now());changed=true;
    }else{
     if(side<0)fail('このルームへの参加情報がありません。',403);
     changed=settle(r,Date.now());
+    changed=touch(r,side,Date.now())||changed;
     if(action==='/ready'&&request.method==='POST'){
      if(!r.joined||r.game.winner!==null)fail('対局を開始できません。',409);
      if(input.round!==r.game.round)fail('ターンが進みました。盤面を確認してください。',409);
