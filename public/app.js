@@ -1,4 +1,5 @@
 import {initial,clone,LABELS,HAND,legal,reservable,projectReservation,apply,canPromote,forced,validatePlan,resolve,cpuPlan,pieceInfo} from '/engine.js';
+import {draftEditContext,draftPieceSelection,replacementDestination} from '/planning.js';
 const $=id=>document.getElementById(id);
 const mobileGuide=matchMedia('(max-width:640px)');
 $('guide-content').open=!mobileGuide.matches;
@@ -15,21 +16,23 @@ const preview=()=>{const p=clone(game);for(const m of draft)projectReservation(p
 function draftDetails(){const p=clone(game);return draft.map(m=>{const detail={m,t:m.drop||p.board[m.from]?.t||'P',conditional:!legal(p,side,m)};projectReservation(p,side,m);return detail;});}
 function pieceHTML(p){return `<span class="piece ${p.s!==side?'enemy ':''}${p.t.startsWith('+')?'promoted':''}"><span>${LABELS[p.t]}</span></span>`;}
 function renderBoard(){
- const p=preview(),details=draftDetails();$('board').classList.toggle('resolving',resolving);$('board').innerHTML='';
+ const p=preview(),details=draftDetails(),edit=canAct()&&draft.length===(doubleActive?2:1)?draftEditContext(game,side,draft):null;
+ const hintSelection=selection||edit?.selection,hintBoard=selection?p:edit?.board;
+ $('board').classList.toggle('resolving',resolving);$('board').innerHTML='';
  const indices=Array.from({length:81},(_,i)=>side===0?i:80-i);
  $('files').innerHTML=(side===0?'９８７６５４３２１':'１２３４５６７８９').split('').map(v=>`<span>${v}</span>`).join('');
  $('ranks').innerHTML=(side===0?'一二三四五六七八九':'九八七六五四三二一').split('').map(v=>`<span>${v}</span>`).join('');
  for(const i of indices){const cell=document.createElement('button');cell.className='square';cell.setAttribute('role','gridcell');cell.dataset.index=i;const v=game.board[i];cell.setAttribute('aria-label',`${coord(i)}${v?' '+name(v.s)+'の'+LABELS[v.t]:' 空きマス'}`);cell.innerHTML=v?pieceHTML(v):'';cell.disabled=resolving;
   const reserved=details.map((d,n)=>({...d,n})).filter(d=>d.m.to===i);
   if(reserved.length){const last=reserved.at(-1),ghost=document.createElement('span');ghost.className='reservation-ghost'+(v?' occupied-ghost':'');ghost.setAttribute('aria-hidden','true');ghost.innerHTML=pieceHTML({s:side,t:(last.m.promote||forced({t:last.t,s:side},i))?'+'+last.t:last.t});cell.append(ghost);const badge=document.createElement('span');badge.className='reservation-badge';badge.textContent=reserved.map(d=>d.n+1).join('・')+'予約';cell.append(badge);cell.setAttribute('aria-label',cell.getAttribute('aria-label')+' '+reserved.map(d=>`${d.n+1}手目の予約位置`).join(' '));}
-  if(selection?.from===i)cell.classList.add('selected');
-  if(selection&&canAct()&&reservable(p,side,{...selection,to:i})){const conditional=!legal(p,side,{...selection,to:i});cell.classList.add(conditional?'conditional':'legal');if(conditional)cell.setAttribute('aria-label',cell.getAttribute('aria-label')+' 条件付き予約');}
+  if(hintSelection?.from===i)cell.classList.add('selected');
+  if(hintSelection&&canAct()&&(!edit||i!==draft.at(-1).to)&&reservable(hintBoard,side,{...hintSelection,to:i})){const conditional=!legal(hintBoard,side,{...hintSelection,to:i});cell.classList.add(conditional?'conditional':'legal');if(conditional)cell.setAttribute('aria-label',cell.getAttribute('aria-label')+' 条件付き予約');}
   if(game.last.some(e=>e.ok&&e.to===i))cell.classList.add('last-move');
   if(draft.some(m=>m.to===i))cell.classList.add('planned');cell.onclick=()=>pick(i);$('board').append(cell);
  }
  if(draft.length){const point=i=>{const j=side===0?i:80-i;return {x:j%9*100+50,y:Math.floor(j/9)*100+50};};const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.classList.add('reservation-arrows');svg.setAttribute('viewBox','0 0 900 900');svg.setAttribute('preserveAspectRatio','none');svg.setAttribute('aria-hidden','true');let content='<defs><marker id="reservation-arrowhead" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M0 0L7 3.5L0 7Z" fill="#416c50"/></marker></defs>';for(const [n,m]of draft.entries()){if(m.drop)continue;const a=point(m.from),b=point(m.to),length=Math.hypot(b.x-a.x,b.y-a.y),ux=(b.x-a.x)/length,uy=(b.y-a.y)/length;content+=`<line x1="${a.x+ux*20}" y1="${a.y+uy*20}" x2="${b.x-ux*28}" y2="${b.y-uy*28}" marker-end="url(#reservation-arrowhead)"/><text x="${(a.x+b.x)/2+12}" y="${(a.y+b.y)/2-10}">${n+1}</text>`;}svg.innerHTML=content;$('board').append(svg);}
  for(const [id,s]of [['my-hand',side],['their-hand',1-side]]){
-  const el=$(id);el.innerHTML='';for(const t of HAND){const n=p.hands[s][t]||0;if(!n)continue;const b=document.createElement('button');b.className='hand-piece'+(selection?.drop===t&&s===side?' selected':'');b.innerHTML=pieceHTML({t,s})+`<b>${n}</b>`;b.setAttribute('aria-label',`${LABELS[t]} ${n}枚を打つ`);b.disabled=resolving;b.onclick=()=>{inspectedPiece={t,s};renderPieceHelp();if(s!==side||!canAct())return;if(draft.length>=(doubleActive?2:1))return toast('選び直してから駒を選んでください。');selection={drop:t};passing=false;render();};el.append(b);}if(!el.children.length)el.innerHTML='<span class="hand-empty">なし</span>';
+  const el=$(id);el.innerHTML='';for(const t of HAND){const n=p.hands[s][t]||0;if(!n)continue;const b=document.createElement('button');b.className='hand-piece'+(selection?.drop===t&&s===side?' selected':'');b.innerHTML=pieceHTML({t,s})+`<b>${n}</b>`;b.setAttribute('aria-label',`${LABELS[t]} ${n}枚を打つ`);b.disabled=resolving;b.onclick=()=>{inspectedPiece={t,s};renderPieceHelp();if(s!==side||!canAct())return;if(draft.length===(doubleActive?2:1)){draft=draftEditContext(game,side,draft).draft;selection=null;passing=false;if(!(preview().hands[side][t]>0)){render();return;}}selection={drop:t};passing=false;render();};el.append(b);}if(!el.children.length)el.innerHTML='<span class="hand-empty">なし</span>';
  }
  updateNearConfirm();
 }
@@ -81,7 +84,7 @@ function render(){
  $('double').disabled=!canAct()||!hasDouble||game.doubleUsed;$('double').classList.toggle('enabled',hasDouble&&!game.doubleUsed);$('double').classList.toggle('activated',doubleActive);
  $('double-help').textContent=!hasDouble?'開始後手だけが使えます':game.doubleUsed?'この対局では使用済み':doubleActive?(draft.length===2?'2手の予約が揃いました':'2手目を予約してください'):'タップして2手を予約';$('double-status').textContent=!hasDouble?'対象外':game.doubleUsed?'使用済み':doubleActive?'選択中':'残り1回';
  $('cpu-mode').classList.toggle('active',mode==='cpu');$('online-mode').classList.toggle('active',mode==='online');
- $('board-status').textContent=room&&!room.joined?`ルーム ${room.code} · 相手の参加を待っています` :ended?`${name(game.winner)}の勝利。おつかれさまでした。`:resolving?'予約手を実行しています。':locked?'選択を確定しました。半透明の駒と矢印は予約です。':selection?'緑の丸は現在移動可能、点線のマスは条件付きで予約できます。':doubleActive&&draft.length===1?'2手目は半透明の予約駒、または別の駒を選んでください。':draft.length?details.some(d=>d.conditional)?'移動先の近くの「確定」で送信。実行時に動けなければ元の位置に留まります。':'移動先の近くの「確定」を押すと送信します。半透明の駒は予約です。':doubleActive?`二度打ち：${draft.length}/2 手を予約。同じ駒をもう一度動かすこともできます。`:'◇ 駒と移動先を選ぶと、移動先の近くに「確定」が表示されます。';
+ $('board-status').textContent=room&&!room.joined?`ルーム ${room.code} · 相手の参加を待っています` :ended?`${name(game.winner)}の勝利。おつかれさまでした。`:resolving?'予約手を実行しています。':locked?'選択を確定しました。半透明の駒と矢印は予約です。':selection?'緑の丸は現在移動可能、点線のマスは条件付きで予約できます。':doubleActive&&draft.length===1?'2手目は半透明の予約駒、または別の駒を選んでください。':draft.length?details.some(d=>d.conditional)?'移動先の近くの「確定」で送信。実行時に動けなければ元の位置に留まります。':'「確定」で送信。別の駒や移動可能なマスをタップすると予約を選び直せます。':doubleActive?`二度打ち：${draft.length}/2 手を予約。同じ駒をもう一度動かすこともできます。`:'◇ 駒と移動先を選ぶと、移動先の近くに「確定」が表示されます。';
  renderHistory();renderClock();renderPieceHelp();renderConnection();
 }
 function movementDiagram(info,owner){
@@ -116,12 +119,23 @@ function renderHistory(){
 function renderClock(){const remaining=!started||!deadline?30:game.winner!==null||resolving?0:Math.max(0,Math.ceil((deadline-Date.now()-offset)/1000));$('seconds').textContent=String(remaining).padStart(2,'0');$('timer-bar').style.width=`${remaining/30*100}%`;$('timer-bar').classList.toggle('urgent',remaining<=8);}
 function pick(i){
  const inspect=()=>{const piece=preview().board[i]||game.board[i];if(piece){inspectedPiece={t:piece.t,s:piece.s};renderPieceHelp();}};
- if(!canAct()){inspect();return;}if(draft.length>=(doubleActive?2:1)){inspect();toast(doubleActive?'2手を予約しました。確定するか、選び直してください。':'一手を予約しました。確定するか、二度打ちを選んでください。');return;}
+ if(!canAct()){inspect();return;}
+ if(draft.length===(doubleActive?2:1)){
+  const chosen=draftPieceSelection(game,side,draft,i);
+  if(chosen){draft=chosen.draft;selection=chosen.selection;passing=false;pendingPromotion=null;inspectedPiece={t:chosen.piece.t,s:side};render();return;}
+  const replacement=replacementDestination(game,side,draft,i);
+  if(replacement){draft=replacement.draft;selection=replacement.selection;passing=false;pendingPromotion=null;reserveDestination(replacement.board,selection,i);return;}
+  inspect();return;
+ }
  const p=preview();if(selection&&reservable(p,side,{...selection,to:i})){
-  const m={...selection,to:i};const piece=selection.drop?null:p.board[selection.from];
-  if(piece&&canPromote(piece,m.from,i)&&!forced(piece,i)){pendingPromotion=m;open('promote-dialog');return;}addMove(m);return;
+  reserveDestination(p,selection,i);return;
  }
  inspect();if(p.board[i]?.s===side){selection={from:i,id:p.board[i].id};passing=false;render();}else{selection=null;render();}
+}
+function reserveDestination(state,chosen,to){
+ const move={...chosen,to},piece=chosen.drop?null:state.board[chosen.from];
+ if(piece&&canPromote(piece,move.from,to)&&!forced(piece,to)){pendingPromotion=move;render();open('promote-dialog');return;}
+ addMove(move);
 }
 function addMove(m){draft.push(m);selection=null;passing=false;render();}
 $('promote-yes').onclick=()=>{const m=pendingPromotion;pendingPromotion=null;$('promote-dialog').close();if(canAct()&&m)addMove({...m,promote:true});};$('promote-no').onclick=()=>{const m=pendingPromotion;pendingPromotion=null;$('promote-dialog').close();if(canAct()&&m)addMove(m);};
