@@ -26,3 +26,13 @@ export function replacementDestination(game,side,plan,to){
  // A changed destination gets a fresh promotion choice in the UI.
  return {...context,move};
 }
+
+// Evaluate each pawn drop before projecting it, including a preceding double move.
+export function nifuWarnings(game,side,plan){
+ const state=clone(game),warnings=[];
+ for(const [index,move]of plan.entries()){
+  if(move.drop==='P'&&state.board.some((piece,at)=>piece?.s===side&&piece.t==='P'&&at%9===move.to%9))warnings.push({index,to:move.to});
+  projectReservation(state,side,move);
+ }
+ return warnings;
+}

@@ -1,5 +1,5 @@
 import {initial,clone,LABELS,HAND,legal,reservable,projectReservation,apply,canPromote,forced,validatePlan,resolve,cpuPlan} from '/engine.js';
-import {draftEditContext,draftPieceSelection,replacementDestination} from '/planning.js';
+import {draftEditContext,draftPieceSelection,replacementDestination,nifuWarnings} from '/planning.js';
 const $=id=>document.getElementById(id);
 const mobileGuide=matchMedia('(max-width:640px)');
 $('guide-content').open=!mobileGuide.matches;
@@ -17,10 +17,10 @@ function syncMobileControls(){
  const mobile=mobileGuide.matches,action=document.querySelector('.action-panel'),note=$('double-note'),button=$('guide-details');
  if(mobile){
   document.querySelector('.header').append(button);button.textContent='遊び方';
-  $('mobile-controls').prepend(note);$('mobile-control-actions').append($('double'),$('undo'));
+  $('mobile-controls').prepend($('nifu-warning'),note);$('mobile-control-actions').append($('double'),$('undo'));
  }else{
   document.querySelector('.guide-footer').append(button);button.innerHTML=rulesButtonMarkup;
-  document.querySelector('.plan-buttons').prepend($('undo'));action.insertBefore($('double'),document.querySelector('.private-note'));action.insertBefore(note,document.querySelector('.private-note'));
+  action.insertBefore($('nifu-warning'),document.querySelector('.plan-buttons'));document.querySelector('.plan-buttons').prepend($('undo'));action.insertBefore($('double'),document.querySelector('.private-note'));action.insertBefore(note,document.querySelector('.private-note'));
  }
 }
 mobileGuide.addEventListener('change',()=>{syncMobileControls();render();});
@@ -64,7 +64,8 @@ function updateNearConfirm(){
  const button=$('near-confirm');
  button.hidden=!canAct()||passing||draft.length!==(doubleActive?2:1);
  if(button.hidden)return;
- button.textContent=doubleActive?'2手を確定':'確定 ✓';
+ const hasNifu=nifuWarnings(game,side,draft).length>0;button.classList.toggle('has-warning',hasNifu);
+ button.textContent=hasNifu?(doubleActive?'二歩に注意・2手を確定':'二歩に注意・確定'):doubleActive?'2手を確定':'確定 ✓';
  button.setAttribute('aria-label',doubleActive?'2手をまとめて確定':`${coord(draft.at(-1).to)}への指し手を確定`);
  positionNearConfirm();
 }
@@ -104,6 +105,8 @@ function render(){
  $('my-ready').classList.toggle('ready',locked);$('their-ready').classList.toggle('ready',readyOther);$('my-ready-text').textContent=locked?'確定済み':draft.length?'選択中':'未選択';$('their-ready-text').textContent=readyOther?'確定済み':started?'考え中':'待機中';
  const details=draftDetails();
  const list=$('plan-list');if(draft.length)list.innerHTML=details.map(({m,t,conditional},i)=>`<div class="plan-move"><small>0${i+1}</small><b>${LABELS[t]}</b><span>${coord(m.to)}${m.drop?' 打':m.promote?' 成':''}</span>${conditional?'<small class="conditional-label">条件付き</small>':''}</div>`).join('');else list.innerHTML=`<div class="empty-plan"><span>${passing?'休':locked?'✓':'一'}</span><p>${!started?'対局開始前です。':passing?'このターンを、見送る。':locked?'一手を、確定しました。':'一手を、選びましょう。'}</p><small>${!started?'対局を始めると指し手を選べます':passing?'パスを確定してください':locked?'相手の選択を待っています':'駒 → 移動先 の順にタップ'}</small></div>`;
+ const warnings=canAct()&&!passing?nifuWarnings(game,side,draft):[],warning=$('nifu-warning');warning.hidden=warnings.length===0;
+ if(warnings.length){const where=warnings.map(w=>`${doubleActive?`${w.index+1}手目・`:''}${coord(w.to)}`).join('、'),message=`二歩に注意：${where}は、同じ筋に自分の歩があります。実行時も残っていると打てません。このまま確定することはできます。`;if(warning.textContent!==message)warning.textContent=message;}
  $('confirm').hidden=!started;
  $('confirm').innerHTML=ended?'対局は終了しました':resolving?'駒を移動しています':room&&!room.joined?'ルームコードを表示 <span>↗</span>':locked?'相手の選択を待っています':passing?'パスを確定する <span>→</span>':doubleActive?`二度打ちを確定 (${draft.length}/2) <span>→</span>`:'この一手を確定 <span>→</span>';
  $('double').setAttribute('aria-pressed',String(doubleActive));
