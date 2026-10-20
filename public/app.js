@@ -73,6 +73,10 @@ function render(){
  $('my-order').textContent=ownFirst?'先手':'後手';$('my-order').classList.toggle('first',ownFirst);$('their-order').textContent=ownFirst?'後手':'先手';$('their-order').classList.toggle('first',!ownFirst);
  $('top-order').textContent=ownFirst?'後手 · 2番目に移動':'先手 · 1番目に移動';$('bottom-order').textContent=ownFirst?'先手 · 1番目に移動':'後手 · 2番目に移動';
  $('top-order').classList.toggle('first',!ownFirst);$('bottom-order').classList.toggle('first',ownFirst);
+ for(const [id,player]of [['my-double',side],['their-double',1-side]]){
+  const badge=$(id),label=game.doubleUsed?'使用済み':'未使用';badge.hidden=player!==game.initialSecond;badge.dataset.used=String(game.doubleUsed);badge.setAttribute('aria-label',`${name(player)}の二度打ち：${label}`);
+  const value=badge.querySelector('strong');if(value.textContent!==label)value.textContent=label;
+ }
  const ended=game.winner!==null;
  const waitingClock=room?.joined&&deadline===null&&!ended&&!resolving;
  $('phase-title').textContent=ended?'対局終了':resolving?'移動中':!started?'対局準備':room&&!room.joined?'相手を待っています':waitingClock?'思考時間を準備中':'思考中';

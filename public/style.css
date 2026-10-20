@@ -128,3 +128,11 @@
 .opponent-toggle input:checked+span:before{content:'✓';font-size:10px}
 .opponent-toggle input:focus-visible+span{outline:3px solid #c6dfac;outline-offset:2px}
 @media(max-width:640px){.board-start{gap:8px}.opponent-toggle legend{font-size:10px;margin-bottom:4px}.opponent-toggle label>span{min-height:30px;font-size:11px}.board-start>small{font-size:10px;letter-spacing:0}.in-game .guide-heading{display:none}}
+
+.order-person{flex-wrap:wrap}
+.order-person>div{flex:1;min-width:0}
+.order-double{display:flex;align-items:center;justify-content:space-between;gap:6px;flex:0 0 100%;padding:6px 8px;margin-top:3px;border:1px solid #93ac78;border-radius:4px;background:#eef5e5;color:#355b35;font-size:10px;line-height:1.5}
+.order-double strong{font-size:11px;font-weight:700;white-space:nowrap}
+.order-double[data-used="true"]{border-color:#cdd3c5;background:#eef0eb;color:#596453}
+.order-double[data-used="true"] strong:before{content:'✓ ';font-size:10px}
+@media(max-width:930px){.order-double{flex-direction:column;gap:1px;padding:5px 3px;text-align:center}.order-double>span{font-size:9px}.order-double strong{font-size:11px}}
