@@ -12,10 +12,25 @@ function syncCompactPanels(){
 }
 compactLayout.addEventListener('change',syncCompactPanels);
 syncCompactPanels();
+const rulesButtonMarkup=$('guide-details').innerHTML;
+function syncMobileControls(){
+ const mobile=mobileGuide.matches,action=document.querySelector('.action-panel'),note=$('double-note'),button=$('guide-details');
+ if(mobile){
+  document.querySelector('.header').append(button);button.textContent='遊び方';
+  $('mobile-controls').prepend(note);$('mobile-control-actions').append($('double'),$('undo'));
+ }else{
+  document.querySelector('.guide-footer').append(button);button.innerHTML=rulesButtonMarkup;
+  document.querySelector('.plan-buttons').prepend($('undo'));action.insertBefore($('double'),document.querySelector('.private-note'));action.insertBefore(note,document.querySelector('.private-note'));
+ }
+}
+mobileGuide.addEventListener('change',()=>{syncMobileControls();render();});
+syncMobileControls();
+const mobileControlsObserver=new ResizeObserver(()=>{document.body.style.setProperty('--mobile-controls-height',`${$('mobile-controls').offsetHeight}px`);});
+mobileControlsObserver.observe($('mobile-controls'));
 let game=initial(),side=0,mode='cpu',started=false,draft=[],selection=null,doubleActive=false,locked=false,passing=false,resolving=false,deadline=null,cpu=null,cpuAt=null,room=null,offset=0,polling=false,submitting=false,startingClock=false,setupSide=0,pendingPromotion=null,confirmAction=null,lastErrorAt=0;
 let connectionState='online',lastContact=Date.now();
 let gameSession=0;
-const name=s=>s===side?'あなた':mode==='cpu'?'練習相手':'相手';
+const name=s=>s===side?'あなた':mode==='cpu'?'対戦相手':'相手';
 const coord=i=>`${9-i%9}${'一二三四五六七八九'[Math.floor(i/9)]}`;
 const toast=message=>{$('toast').textContent=message;$('toast').classList.add('visible');clearTimeout(toast.timer);toast.timer=setTimeout(()=>$('toast').classList.remove('visible'),3300);};
 const open=id=>{if(!$(id).open)$(id).showModal();};
@@ -67,7 +82,7 @@ function positionNearConfirm(){
 const confirmPlacementObserver=new ResizeObserver(positionNearConfirm);
 confirmPlacementObserver.observe($('board'));confirmPlacementObserver.observe($('near-confirm'));
 function render(){
- renderBoard();const ownFirst=game.leader===side,opponent=mode==='cpu'?'練習相手':'相手';
+ renderBoard();const ownFirst=game.leader===side,opponent=mode==='cpu'?'対戦相手':'相手';
  $('round').textContent=`第 ${game.round} ターン`;$('opponent-name').textContent=opponent;$('top-name').textContent=opponent;$('top-sub').textContent=mode==='cpu'?'CPU':'PLAYER';
  $('my-start').textContent=`最初は${side===0?'先手':'後手'}`;$('their-start').textContent=`最初は${side===0?'後手':'先手'}`;$('bottom-sub').textContent=`最初は${side===0?'先手':'後手'}`;
  $('my-order').textContent=ownFirst?'先手':'後手';$('my-order').classList.toggle('first',ownFirst);$('their-order').textContent=ownFirst?'後手':'先手';$('their-order').classList.toggle('first',!ownFirst);
@@ -83,6 +98,7 @@ function render(){
  $('phase-description').textContent=ended?`${name(game.winner)}の勝ちです。`:resolving?'決めた一手を、順番に実行します。':!started?'準備ができたら、はじめましょう。':room&&!room.joined?'ルームコードを相手に伝えてください。':waitingClock?'盤面の準備ができたら30秒を開始します。':locked?'相手の確定を待っています。':'相手の一手を読み、駒を選びましょう。';
  if(started&&!ended&&!document.body.classList.contains('in-game')&&mobileGuide.matches)$('guide-content').open=false;
  document.body.classList.toggle('in-game',started&&!ended);
+ const showMobileControls=mobileGuide.matches&&started&&!ended;$('mobile-controls').hidden=!showMobileControls;document.body.classList.toggle('has-mobile-controls',showMobileControls);
  $('think-step').classList.toggle('current',!resolving);$('move-step').classList.toggle('current',resolving);
  const readyOther=room?room.ready[1-side]:cpu!==null;
  $('my-ready').classList.toggle('ready',locked);$('their-ready').classList.toggle('ready',readyOther);$('my-ready-text').textContent=locked?'確定済み':draft.length?'選択中':'未選択';$('their-ready-text').textContent=readyOther?'確定済み':started?'考え中':'待機中';
@@ -182,9 +198,8 @@ function ask(title,description,action){$('confirm-title').textContent=title;$('c
 function prepareGame(nextMode){
  gameSession++;resolving=false;started=false;room=null;mode=nextMode;game=initial();draft=[];selection=null;pendingPromotion=null;doubleActive=false;locked=false;passing=false;deadline=null;cpu=null;cpuAt=null;sessionStorage.removeItem('awai-room');render();
 }
-function newSetup(nextMode){if(started&&game.winner===null)ask('対局を終了しますか？','オンライン対局中は投了してから、新しい対局へ進みます。',async()=>{if(room?.joined)await request(`/api/rooms/${room.code}/resign`,{});prepareGame(nextMode);});else prepareGame(nextMode);}
 $('confirm-yes').onclick=async()=>{const action=confirmAction;confirmAction=null;$('confirm-dialog').close();try{await action?.();}catch(e){toast(e.message);}};$('confirm-no').onclick=()=>{confirmAction=null;$('confirm-dialog').close();};
-$('cpu-mode').onchange=()=>{if(!started&&$('cpu-mode').checked){mode='cpu';render();}};$('online-mode').onchange=()=>{if(!started&&$('online-mode').checked){mode='online';render();}};$('new-game').onclick=()=>newSetup(mode);
+$('cpu-mode').onchange=()=>{if(!started&&$('cpu-mode').checked){mode='cpu';render();}};$('online-mode').onchange=()=>{if(!started&&$('online-mode').checked){mode='online';render();}};
 document.querySelectorAll('[data-side]').forEach(b=>b.onclick=()=>{setupSide=Number(b.dataset.side);document.querySelectorAll('[data-side]').forEach(x=>x.classList.toggle('selected',x===b));});
 $('start-cpu').onclick=()=>{$('setup-dialog').close();startCPU();};$('board-start-button').onclick=()=>setup(mode);$('guide-details').onclick=()=>open('rules-dialog');
 document.querySelectorAll('.dialog-close,.dialog-dismiss').forEach(b=>b.onclick=()=>b.closest('dialog').close());

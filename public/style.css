@@ -148,3 +148,65 @@
 .timer-track div.urgent{background:#b32e2e}
 @keyframes clock-alert{0%,100%{background-color:transparent;text-shadow:none}50%{background-color:#b32e2e18;text-shadow:0 0 10px #b32e2e26}}
 @media(prefers-reduced-motion:reduce){.clock-row.urgent strong{animation:none}}
+
+.mobile-controls{display:none}
+.game-options{justify-content:flex-end}
+@media(max-width:640px){
+ .header{height:54px;padding:0 12px;gap:10px}
+ .brand{font-size:19px;letter-spacing:1px;gap:7px}
+ .brand-mark{width:28px;height:32px;font-size:19px;padding-top:3px}
+ .brand-small{font-size:14px}
+ .brand small{font-size:6px;letter-spacing:2px;margin-top:1px}
+ .header>#guide-details{min-height:36px;border:1px solid #c6d0bf;border-radius:5px;padding:7px 12px;font-size:11px;color:var(--green);background:var(--paper);white-space:nowrap}
+ .play-guide{display:none}
+ main{padding:8px 8px 0}
+ .game-layout{display:grid;grid-template-columns:minmax(0,1fr);gap:10px}
+ .left-panel,.left-panel:has(.connection-panel:not([hidden])){grid-column:1;grid-row:1;display:grid;grid-template-columns:96px minmax(0,1fr);gap:8px;width:100%;margin:0}
+ .left-panel>.turn-panel{display:flex;padding:7px 8px;gap:0;min-height:96px}
+ .turn-panel>.section-label{justify-content:center}
+ .round-badge{padding:2px 4px;font-size:8px}
+ .turn-panel .phase-line{justify-content:center;margin:3px 0 0;gap:4px}
+ .phase-line h2{font-size:9px;line-height:1.3}
+ .turn-panel .clock-row{align-items:center;gap:0}
+ .clock-row>span{font-size:8px;margin-top:2px}
+ .clock-row strong{font-size:31px;line-height:1.1}
+ .clock-row small{font-size:9px}
+ .timer-track{margin-top:4px;height:2px}
+ .order-panel{display:grid;grid-template-columns:1fr 1fr;gap:5px 7px;padding:7px 8px;margin:0;align-content:start}
+ .order-panel>.section-label{grid-column:1/-1;font-size:9px;line-height:1.3;justify-content:center}
+ .order-person{display:flex;flex-direction:column;align-items:stretch;gap:3px;margin:0;min-width:0}
+ .order-person>div{flex:0 0 auto;text-align:center;line-height:1.2}
+ .order-person strong{font-size:10px}
+ .order-person .avatar,.order-person small{display:none}
+ .order-tag{flex:0 0 auto;margin:0;min-width:0;width:100%;font-size:18px;line-height:1.25;padding:4px}
+ .order-double{flex:0 0 auto;flex-direction:row;justify-content:center;gap:3px;margin:0;padding:2px 1px;min-height:18px}
+ .order-double>span{font-size:8px;white-space:nowrap}
+ .order-double strong{font-size:9px}
+ .board-column{grid-column:1;grid-row:2;width:100%}
+ .right-panel{grid-column:1;grid-row:3}
+ .player-caption{height:24px}
+ .hand-tray{flex-direction:row;align-items:center;gap:8px;min-height:36px;padding:5px 7px}
+ .hand-label{font-size:8px}
+ .hand-pieces{flex:1;width:auto;min-height:18px}
+ .hand-piece{width:25px;height:30px}
+ .hand-piece .piece{height:29px;width:24px}
+ .hand-piece .piece span{font-size:18px}
+ .board-surround{padding-top:19px;padding-bottom:12px}
+ .files{top:4px}
+ .ranks{top:24px;bottom:18px}
+ .square .piece span{font-size:clamp(19px,6vw,30px)}
+ .board-status{padding:7px 0;min-height:34px;font-size:10px}
+ .action-panel{padding:14px}
+ .plan-list{min-height:70px}
+ .mobile-controls{position:fixed;left:0;right:0;bottom:0;z-index:16;display:flex;flex-direction:column;gap:6px;background:var(--paper);border-top:1px solid #ccd5c4;box-shadow:0 -3px 16px #243d2418;padding:7px 10px calc(7px + env(safe-area-inset-bottom,0px))}
+ .mobile-control-actions{display:flex;align-items:stretch;gap:8px}
+ .mobile-controls .double-button{flex:1;margin:0;min-height:52px;padding:7px 10px}
+ .mobile-controls .double-button small{font-size:9px;line-height:1.5}
+ .mobile-controls #undo{flex:0 0 108px;border:1px solid #bac8b0;border-radius:4px;background:#f1f5eb;color:#34523b;padding:7px;font-size:10px;line-height:1.6}
+ .mobile-controls #undo:disabled{opacity:1;color:#829078;background:#f0f2ec;border-color:#d8dfd0}
+ .mobile-controls .double-note{margin:0;padding:8px 10px;font-size:10px;line-height:1.7;max-height:22dvh;overflow:auto}
+ body.has-mobile-controls{padding-bottom:calc(var(--mobile-controls-height,90px) + 16px)}
+ .has-mobile-controls .toast{bottom:calc(var(--mobile-controls-height,90px) + 14px)}
+ footer{margin-top:12px;padding:14px 0}
+}
+@media(max-width:360px){.left-panel,.left-panel:has(.connection-panel:not([hidden])){grid-template-columns:88px minmax(0,1fr)}.order-panel{column-gap:5px}.order-person strong{font-size:9px}.order-double>span{font-size:7px}.mobile-controls #undo{flex-basis:100px}}
