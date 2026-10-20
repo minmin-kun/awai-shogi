@@ -83,3 +83,27 @@
  .near-confirm{min-width:50px;padding:7px 8px}
 }
 @media(max-width:360px){.game-layout{grid-template-columns:minmax(0,1fr) 82px;gap:8px}.turn-panel,.order-panel{padding:9px 6px}.clock-row strong{font-size:33px}.order-tag{font-size:20px}}
+
+/* Illustrated rules use the same pieces and order colors as the board. */
+.guide-steps li{display:flex;flex-direction:column;gap:12px;padding:18px;align-items:stretch}
+.guide-card-heading,.rule-card-heading{display:flex;align-items:center;gap:10px}
+.guide-card-heading .guide-number{font-size:18px;line-height:1}
+.guide-steps .guide-card-heading h2{margin:0;font-size:13px;line-height:1.6}
+.rule-illustration{display:block;width:100%;height:auto;aspect-ratio:5/3;border-radius:8px;background:#f3f5ed}
+.guide-steps li>p{margin:0;font-size:11px;line-height:1.9;color:#63725b}
+.illustrated-rule{display:block;border-bottom:1px solid var(--line);padding-bottom:22px}
+.rule-card-heading{margin-bottom:12px}
+.rule-card-heading>b{font:22px Georgia,serif;color:#8e9e7c}
+.rule-card-heading h3{margin:0}
+.illustrated-rule .rule-illustration{max-width:400px;margin:0 auto 12px}
+.illustrated-rule>p{font-size:12px;line-height:1.9;color:#63725b;margin:0}
+@media(max-width:640px){
+ .guide-steps{grid-template-columns:1fr}
+ .guide-steps li{padding:16px;gap:10px;border-right:0;border-bottom:1px solid var(--line)}
+ .guide-steps li:last-child{border-bottom:0}
+ .guide-steps .guide-card-heading h2{font-size:14px}
+ .guide-steps li>p{font-size:12px}
+ .guide-steps .rule-illustration{max-width:400px;margin:0 auto}
+}
+
+.rules-fine>summary{cursor:pointer;font-size:12px;font-weight:600;color:var(--green);padding:2px 0}.rules-fine[open]>summary{margin-bottom:16px}
