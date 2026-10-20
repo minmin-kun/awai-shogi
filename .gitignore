@@ -2,3 +2,4 @@ dist/
 .data/
 *.tar.gz
 node_modules/
+.wrangler/

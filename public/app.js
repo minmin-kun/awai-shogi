@@ -120,7 +120,7 @@ function render(){
  const doubleNote=$('double-note');doubleNote.hidden=!doubleActive||!canAct();
  const editHint=draft.length===2?'1手目を変えるには「2手目を取り消す」→「1手目を取り消す」の順に戻り、選び直してください。':draft.length===1?'1手目を変えるには「1手目を取り消す」で戻り、選び直してください。':'2手を順に選びます。選んだ1手目は「1手目を取り消す」で選び直せます。';
  const note=editHint+' 二度打ちをやめるときは、ボタンをもう一度押してください。';if(doubleNote.textContent!==note)doubleNote.textContent=note;
- $('cpu-mode').checked=mode==='cpu';$('online-mode').checked=mode==='online';$('mode-hint').textContent=mode==='cpu'?'CPUと練習します':'ルームコードで対戦します';
+ $('cpu-mode').checked=mode==='cpu';$('online-mode').checked=mode==='online';$('random-mode').checked=mode==='random';$('mode-hint').textContent=mode==='cpu'?'CPUと練習します':mode==='random'?'相手を自動で探します':'ルームコードで対戦します';
 
  renderHistory();renderClock();renderConnection();
 }
@@ -196,7 +196,7 @@ async function commit(){
 $('confirm').onclick=commit;
 $('near-confirm').onclick=e=>{e.preventDefault();e.stopPropagation();void commit();};
 function showResult(){for(const id of ['room-dialog','promote-dialog'])$(id).close();$('result-title').textContent=game.winner===side?'あなたの勝ちです。':'相手の勝ちです。';$('result-note').textContent=game.resigned!==undefined?`${name(game.resigned)}が投了しました。`:`${name(game.winner)}が王を取りました。`+` ${game.round-1}ターンの対局でした。`;open('end-dialog');}
-function setup(nextMode){$('setup-title').textContent=nextMode==='cpu'?'CPUと対戦':'友だちと対戦';$('cpu-settings').hidden=nextMode!=='cpu';$('online-settings').hidden=nextMode!=='online';$('room-error').textContent='';setupSide=side;document.querySelectorAll('[data-side]').forEach(b=>b.classList.toggle('selected',Number(b.dataset.side)===setupSide));open('setup-dialog');}
+function setup(nextMode){if(nextMode==='random'){void startMatch();return;}$('setup-title').textContent=nextMode==='cpu'?'CPUと対戦':'友だちと対戦';$('cpu-settings').hidden=nextMode!=='cpu';$('online-settings').hidden=nextMode!=='online';$('room-error').textContent='';setupSide=side;document.querySelectorAll('[data-side]').forEach(b=>b.classList.toggle('selected',Number(b.dataset.side)===setupSide));open('setup-dialog');}
 function ask(title,description,action){$('confirm-title').textContent=title;$('confirm-description').textContent=description;confirmAction=action;open('confirm-dialog');}
 function prepareGame(nextMode){
  gameSession++;resolving=false;started=false;room=null;mode=nextMode;game=initial();draft=[];selection=null;pendingPromotion=null;doubleActive=false;locked=false;passing=false;deadline=null;cpu=null;cpuAt=null;sessionStorage.removeItem('awai-room');render();
@@ -204,9 +204,10 @@ function prepareGame(nextMode){
 $('confirm-yes').onclick=async()=>{const action=confirmAction;confirmAction=null;$('confirm-dialog').close();try{await action?.();}catch(e){toast(e.message);}};$('confirm-no').onclick=()=>{confirmAction=null;$('confirm-dialog').close();};
 $('cpu-mode').onchange=()=>{if(!started&&$('cpu-mode').checked){mode='cpu';render();}};$('online-mode').onchange=()=>{if(!started&&$('online-mode').checked){mode='online';render();}};
 document.querySelectorAll('[data-side]').forEach(b=>b.onclick=()=>{setupSide=Number(b.dataset.side);document.querySelectorAll('[data-side]').forEach(x=>x.classList.toggle('selected',x===b));});
+$('random-mode').onchange=()=>{if(!started&&$('random-mode').checked){mode='random';render();}};
 $('start-cpu').onclick=()=>{$('setup-dialog').close();startCPU();};$('board-start-button').onclick=()=>setup(mode);$('guide-details').onclick=()=>open('rules-dialog');
 document.querySelectorAll('.dialog-close,.dialog-dismiss').forEach(b=>b.onclick=()=>b.closest('dialog').close());
-$('play-again').onclick=()=>{$('end-dialog').close();prepareGame(mode);};
+$('play-again').onclick=()=>{$('end-dialog').close();prepareGame(room?.random?'random':mode);};
 $('resign').onclick=()=>ask('この一局を、投了しますか？','投了すると相手の勝利で対局が終了します。',async()=>{if(room){const next=await request(`/api/rooms/${room.code}/resign`,{});await accept(next);}else{game.winner=1-side;game.resigned=side;render();showResult();}});
 async function request(path,body,auth=room?.token){
  const watching=!!room&&path.startsWith(`/api/rooms/${room.code}`);let reached=false;
@@ -215,6 +216,30 @@ async function request(path,body,auth=room?.token){
   if(!res.ok)throw new Error(data.error||'接続できませんでした。');return data;
  }catch(e){if(watching&&!reached){connectionState=navigator.onLine===false?'offline':'reconnecting';renderConnection();}throw e;}
 }
+let matchToken=null,matchBusy=false,cancelMatchRequested=false;
+async function startMatch(){
+ if(matchToken)return;
+ cancelMatchRequested=false;matchToken=crypto.randomUUID()+crypto.randomUUID();sessionStorage.setItem('awai-match',matchToken);
+ open('match-dialog');void syncMatch();
+}
+async function syncMatch(cancel=false){
+ if(!matchToken)return;
+ if(matchBusy){if(cancel)cancelMatchRequested=true;return;}
+ cancelMatchRequested=cancel;matchBusy=true;
+ try{
+  const data=await request(cancel?'/api/matchmaking/cancel':'/api/matchmaking',{},matchToken);
+  if(data.status==='matched'){
+   await enter({...data,token:matchToken});
+   sessionStorage.removeItem('awai-match');matchToken=null;cancelMatchRequested=false;$('match-dialog').close();
+   toast('対戦相手が見つかりました。');
+  }else if(cancel){sessionStorage.removeItem('awai-match');matchToken=null;cancelMatchRequested=false;$('match-dialog').close();}
+  else $('match-status').textContent='相手の参加を待っています。この画面を開いたままお待ちください。';
+ }catch(e){$('match-status').textContent='接続を再試行しています：'+e.message;}
+ finally{matchBusy=false;}
+}
+$('cancel-match').onclick=()=>{cancelMatchRequested=true;void syncMatch(true);};
+$('match-dialog').addEventListener('cancel',e=>{e.preventDefault();$('cancel-match').click();});
+setInterval(()=>{if(matchToken)void syncMatch(cancelMatchRequested);},2000);
 function saveRoom(){sessionStorage.setItem('awai-room',JSON.stringify({code:room.code,token:room.token}));}
 async function enter(data){
  gameSession++;
@@ -244,3 +269,5 @@ window.addEventListener('offline',()=>{connectionState='offline';renderConnectio
 window.addEventListener('online',()=>{connectionState='reconnecting';renderConnection();void pollRoom();});
 render();
 try{const saved=JSON.parse(sessionStorage.getItem('awai-room')||'null');if(saved?.code&&saved?.token){room=saved;const data=await request(`/api/rooms/${saved.code}`);await enter({...data,token:saved.token});if(game.winner!==null)showResult();}}catch{room=null;sessionStorage.removeItem('awai-room');toast('前のルームに接続できませんでした。新しい対局を作れます。');}
+
+if(!room){const savedMatch=sessionStorage.getItem('awai-match');if(savedMatch){matchToken=savedMatch;mode='random';render();open('match-dialog');void syncMatch();}}else sessionStorage.removeItem('awai-match');

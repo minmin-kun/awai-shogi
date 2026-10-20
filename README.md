@@ -1,6 +1,6 @@
 # あわい将棋
 
-両者が同時に指し手を予約する、ブラウザ用の変則将棋。CPU練習とルームコードでのオンライン対戦に対応します。
+両者が同時に指し手を予約する、ブラウザ用の変則将棋。CPU練習、ルームコードでの友だち対戦、ランダムマッチに対応します。
 
 ## ローカル起動
 
@@ -52,3 +52,21 @@ npm run build
 公開先のアクセス権と対戦ルーム参加は別です。Sitesの初期公開は所有者限定のため、別アカウントの友だちと試すにはSites側の共有設定も必要です。
 
 歩を打つ指し手が同じ筋の自分の歩と二歩になる場合は、確定前に警告します。警告だけで確定は妨げず、最終判定は実行時に行います。二度打ちの2手目は1手目を反映した盤面で確認し、相手の歩や成った歩は数えません。
+
+「だれかと」→「対局をはじめる」で、同じサーバーの待機中の相手と自動マッチします。開始順はランダムです。相手がいない間は待機し、キャンセルできます。マッチ成立とキャンセルが重なった場合は成立した対局へ進みます。待機情報は同じタブの再読み込みで復帰し、20秒間更新がない待機者は対象から外します。レーティングによる組み合わせは行いません。SQLite／D1共通で既存のroomsテーブルを使用し、追加マイグレーションは不要です。
+
+## Cloudflareへの公開
+
+公開URL: https://play.awai-shogi.workers.dev
+
+`wrangler.jsonc` にCloudflare WorkersとD1の接続先を設定しています。更新時は以下を実行します。
+
+```powershell
+npm ci
+npm test
+npx wrangler deploy
+```
+
+初めて操作するPCでは `npx wrangler login --scopes account:read user:read workers:write workers_scripts:write d1:write` で認証してください。DBのスキーマ変更がある場合は、公開前に `npx wrangler d1 migrations apply awai-shogi-db --remote` を実行します。`wrangler deploy` はビルドも実行します。
+
+Cloudflareへの直接公開には `.openai/hosting.json` のSitesプロジェクトとは別のWorker・D1を使用します。既存のSites側のルームは移行されません。Cloudflareの無料枠にはリクエスト・CPU時間・DB容量・読み書き回数の上限があるため、利用量をCloudflareの管理画面で確認してください。

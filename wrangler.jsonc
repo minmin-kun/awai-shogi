@@ -1,0 +1,17 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "play",
+  "main": "dist/server/index.js",
+  "compatibility_date": "2026-10-20",
+  "workers_dev": true,
+  "send_metrics": false,
+  "build": { "command": "npm run build" },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "awai-shogi-db",
+      "database_id": "520587f3-d0d3-4ce5-a1e9-baff56d6057b",
+      "migrations_dir": "drizzle"
+    }
+  ]
+}
