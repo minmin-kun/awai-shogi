@@ -74,7 +74,7 @@ function render(){
  $('top-order').textContent=ownFirst?'後手 · 2番目に移動':'先手 · 1番目に移動';$('bottom-order').textContent=ownFirst?'先手 · 1番目に移動':'後手 · 2番目に移動';
  $('top-order').classList.toggle('first',!ownFirst);$('bottom-order').classList.toggle('first',ownFirst);
  for(const [id,player]of [['my-double',side],['their-double',1-side]]){
-  const badge=$(id),label=game.doubleUsed?'使用済み':'未使用';badge.hidden=player!==game.initialSecond;badge.dataset.used=String(game.doubleUsed);badge.setAttribute('aria-label',`${name(player)}の二度打ち：${label}`);
+  const badge=$(id),label=game.doubleUsed?'済':'可能';badge.hidden=player!==game.initialSecond;badge.dataset.used=String(game.doubleUsed);badge.setAttribute('aria-label',`${name(player)}の二度打ち：${game.doubleUsed?'使用済み':'利用可能'}`);
   const value=badge.querySelector('strong');if(value.textContent!==label)value.textContent=label;
  }
  const ended=game.winner!==null;
