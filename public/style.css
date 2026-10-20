@@ -218,3 +218,13 @@
 .near-confirm.has-warning:after{border-top-color:#875619}
 .near-confirm.has-warning[data-placement="below"]:after{border-top:0;border-bottom-color:#875619}
 .mobile-controls .nifu-warning{margin:0;padding:8px 10px;font-size:10px;line-height:1.7;max-height:22dvh;overflow:auto}
+
+.reservation-badge{display:grid;place-items:center;min-width:17px;height:17px;padding:1px;border:0;border-radius:9px;background:#fffefaf0;color:#284f40;font-size:14px;font-weight:700;line-height:1}
+#my-player-name{display:inline-block;padding:3px 8px;border:1px solid #9db58b;border-radius:4px;background:#e2eed9;color:#173e29;font-size:14px;font-weight:800;line-height:1.4}
+@media(max-width:640px){
+ .order-panel{align-items:start}
+ .order-person>div{display:flex;align-items:center;justify-content:center;height:28px;min-height:28px}
+ .order-person>div>strong{font-size:12px;font-weight:600;line-height:1.4;white-space:nowrap}
+ .order-person #my-player-name{padding:2px 6px;font-size:12px;font-weight:800;line-height:1.4}
+ .reservation-badge{min-width:16px;height:16px;font-size:13px}
+}
