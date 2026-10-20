@@ -3,6 +3,10 @@ const $=id=>document.getElementById(id);
 const mobileGuide=matchMedia('(max-width:640px)');
 $('guide-content').open=!mobileGuide.matches;
 mobileGuide.addEventListener('change',()=>{$('guide-content').open=!mobileGuide.matches;});
+let autoConfirm=true;
+try{autoConfirm=localStorage.getItem('awai-auto-confirm')!=='off';}catch{}
+$('auto-confirm').checked=autoConfirm;
+$('auto-confirm').onchange=()=>{autoConfirm=$('auto-confirm').checked;try{localStorage.setItem('awai-auto-confirm',autoConfirm?'on':'off');}catch{}render();};
 let game=initial(),side=0,mode='cpu',started=false,draft=[],selection=null,doubleActive=false,locked=false,passing=false,resolving=false,deadline=null,cpu=null,cpuAt=null,room=null,offset=0,polling=false,submitting=false,startingClock=false,setupSide=0,pendingPromotion=null,confirmAction=null,lastErrorAt=0;
 let inspectedPiece=null,connectionState='online',lastContact=Date.now();
 const name=s=>s===side?'あなた':mode==='cpu'?'練習相手':'相手';
@@ -48,7 +52,8 @@ function render(){
  $('my-ready').classList.toggle('ready',locked);$('their-ready').classList.toggle('ready',readyOther);$('my-ready-text').textContent=locked?'確定済み':draft.length?'選択中':'未選択';$('their-ready-text').textContent=readyOther?'確定済み':started?'思考中':'待機中';
  const details=draftDetails();
  const list=$('plan-list');if(draft.length)list.innerHTML=details.map(({m,t,conditional},i)=>`<div class="plan-move"><small>0${i+1}</small><b>${LABELS[t]}</b><span>${coord(m.to)}${m.drop?' 打':m.promote?' 成':''}</span>${conditional?'<small class="conditional-label">条件付き</small>':''}</div>`).join('');else list.innerHTML=`<div class="empty-plan"><span>${passing?'休':locked?'✓':'一'}</span><p>${passing?'このターンを、見送る。':locked?'一手を、確定しました。':'一手を、選びましょう。'}</p><small>${passing?'パスを確定してください':locked?'相手の選択を待っています':'駒 → 移動先 の順にタップ'}</small></div>`;
- $('confirm').innerHTML=!started?'対局をはじめる <span>→</span>':ended?'対局は終了しました':resolving?'駒を移動しています':room&&!room.joined?'ルームコードを表示 <span>↗</span>':locked?'相手の選択を待っています':passing?'パスを確定する <span>→</span>':doubleActive?`二度打ちを確定 (${draft.length}/2) <span>→</span>`:'この一手を確定 <span>→</span>';
+ $('confirm').innerHTML=!started?'対局をはじめる <span>→</span>':ended?'対局は終了しました':resolving?'駒を移動しています':room&&!room.joined?'ルームコードを表示 <span>↗</span>':locked?'相手の選択を待っています':passing?'パスを確定する <span>→</span>':autoConfirm&&draft.length!==(doubleActive?2:1)?doubleActive&&draft.length===1?'2手目を選ぶと自動で確定':'移動先を選ぶと自動で確定':doubleActive?`二度打ちを確定 (${draft.length}/2) <span>→</span>`:'この一手を確定 <span>→</span>';
+ $('guide-confirm-rule').textContent=autoConfirm?'移動先を選ぶと自動で確定。両者が確定すると移動開始。時間切れはパス。':'指し手を予約し、確定ボタンで送信。両者が確定すると移動開始。時間切れはパス。';$('double').setAttribute('aria-pressed',String(doubleActive));$('auto-confirm-note').textContent=autoConfirm?'移動先を選ぶと確定します。二度打ちは1手目を選ぶ前にONにしてください。':'移動先を選んだ後、確定ボタンで送信します。';
  $('confirm').disabled=ended||resolving||locked||waitingClock||(started&&(!room||room.joined)&&!passing&&draft.length!==(doubleActive?2:1));
  $('undo').disabled=!canAct()||(!draft.length&&!selection&&!passing);$('pass').disabled=!canAct();$('resign').disabled=!canAct()&&!locked||!started||ended||resolving||room&&!room.joined;
  $('undo').textContent=draft.length===2?'↶ 2手目を取り消す':draft.length===1?'↶ 1手目を取り消す':'↶ 選び直す';
@@ -99,11 +104,11 @@ function pick(i){
  }
  inspect();if(p.board[i]?.s===side){selection={from:i,id:p.board[i].id};passing=false;render();}else{selection=null;render();}
 }
-function addMove(m){draft.push(m);selection=null;passing=false;render();}
+function addMove(m){draft.push(m);selection=null;passing=false;render();if(autoConfirm&&draft.length===(doubleActive?2:1))void commit();}
 $('promote-yes').onclick=()=>{const m=pendingPromotion;pendingPromotion=null;$('promote-dialog').close();if(canAct()&&m)addMove({...m,promote:true});};$('promote-no').onclick=()=>{const m=pendingPromotion;pendingPromotion=null;$('promote-dialog').close();if(canAct()&&m)addMove(m);};
 $('undo').onclick=()=>{if(draft.length)draft.pop();selection=null;passing=false;render();};
 $('clear-plan').onclick=()=>{draft=[];selection=null;passing=false;render();};
-$('pass').onclick=()=>{draft=[];selection=null;doubleActive=false;passing=true;render();};
+$('pass').onclick=()=>{if(!canAct())return;draft=[];selection=null;doubleActive=false;passing=true;render();if(autoConfirm)void commit();};
 $('double').onclick=()=>{if(!canAct()||side!==game.initialSecond||game.doubleUsed)return;doubleActive=!doubleActive;if(!doubleActive)draft=draft.slice(0,1);passing=false;selection=null;render();};
 function startCPU(){
  room=null;inspectedPiece=null;sessionStorage.removeItem('awai-room');mode='cpu';side=setupSide;game=initial();started=true;draft=[];selection=null;doubleActive=false;locked=false;passing=false;resolving=false;offset=0;beginCPU();render();
