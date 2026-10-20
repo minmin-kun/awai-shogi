@@ -4,6 +4,14 @@ const $=id=>document.getElementById(id);
 const mobileGuide=matchMedia('(max-width:640px)');
 $('guide-content').open=!mobileGuide.matches;
 mobileGuide.addEventListener('change',()=>{$('guide-content').open=!mobileGuide.matches;});
+const compactLayout=matchMedia('(max-width:930px)');
+function syncCompactPanels(){
+ const compact=compactLayout.matches;
+ if(compact){document.querySelector('.right-panel').prepend($('connection-panel'));document.querySelector('.action-panel').append($('readiness'));}
+ else{document.querySelector('.left-panel').insertBefore($('connection-panel'),document.querySelector('.order-panel'));document.querySelector('.turn-panel').append($('readiness'));}
+}
+compactLayout.addEventListener('change',syncCompactPanels);
+syncCompactPanels();
 let game=initial(),side=0,mode='cpu',started=false,draft=[],selection=null,doubleActive=false,locked=false,passing=false,resolving=false,deadline=null,cpu=null,cpuAt=null,room=null,offset=0,polling=false,submitting=false,startingClock=false,setupSide=0,pendingPromotion=null,confirmAction=null,lastErrorAt=0;
 let inspectedPiece=null,connectionState='online',lastContact=Date.now();
 let gameSession=0;
@@ -63,9 +71,10 @@ function render(){
  $('my-start').textContent=`開始時：${side===0?'先手':'後手'}`;$('their-start').textContent=`開始時：${side===0?'後手':'先手'}`;$('bottom-sub').textContent=`開始${side===0?'先手':'後手'}`;
  $('my-order').textContent=ownFirst?'先手':'後手';$('my-order').classList.toggle('first',ownFirst);$('their-order').textContent=ownFirst?'後手':'先手';$('their-order').classList.toggle('first',!ownFirst);
  $('top-order').textContent=ownFirst?'後手 · 2番目に移動':'先手 · 1番目に移動';$('bottom-order').textContent=ownFirst?'先手 · 1番目に移動':'後手 · 2番目に移動';
+ $('top-order').classList.toggle('first',!ownFirst);$('bottom-order').classList.toggle('first',ownFirst);
  const ended=game.winner!==null;
  const waitingClock=room?.joined&&deadline===null&&!ended&&!resolving;
- $('phase-title').textContent=ended?'対局終了':resolving?'移動フェイズ':!started?'対局準備':room&&!room.joined?'相手を待っています':waitingClock?'思考時間を準備中':'思考フェイズ';
+ $('phase-title').textContent=ended?'対局終了':resolving?'移動中':!started?'対局準備':room&&!room.joined?'相手を待っています':waitingClock?'思考時間を準備中':'思考中';
  $('phase-description').textContent=ended?`${name(game.winner)}の勝ちです。`:resolving?'予約した一手を、順番に実行します。':!started?'準備ができたら、はじめましょう。':room&&!room.joined?'ルームコードを相手に伝えてください。':waitingClock?'盤面の準備ができたら30秒を開始します。':locked?'相手の確定を待っています。':'相手の一手を読み、駒を選びましょう。';
  if(started&&!ended&&!document.body.classList.contains('in-game')&&mobileGuide.matches)$('guide-content').open=false;
  document.body.classList.toggle('in-game',started&&!ended);
