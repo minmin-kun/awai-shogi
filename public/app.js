@@ -118,7 +118,7 @@ function render(){
  const editHint=draft.length===2?'1手目を変えるには「2手目を取り消す」→「1手目を取り消す」の順に戻り、選び直してください。':draft.length===1?'1手目を変えるには「1手目を取り消す」で戻り、選び直してください。':'2手を順に選びます。選んだ1手目は「1手目を取り消す」で選び直せます。';
  const note=editHint+' 二度打ちをやめるときは、ボタンをもう一度押してください。';if(doubleNote.textContent!==note)doubleNote.textContent=note;
  $('cpu-mode').checked=mode==='cpu';$('online-mode').checked=mode==='online';$('mode-hint').textContent=mode==='cpu'?'CPUと練習します':'ルームコードで対戦します';
- $('board-status').textContent=room&&!room.joined?`ルーム ${room.code} · 相手の参加を待っています` :ended?`${name(game.winner)}の勝利。おつかれさまでした。`:resolving?'指し手を実行しています。':locked?'選択を確定しました。半透明の駒と矢印は移動予定です。':selection?'緑の丸は現在移動可能、点線のマスは条件付きで指定できます。':doubleActive&&draft.length===1?'2手目は半透明の移動予定の駒、または別の駒を選んでください。':draft.length?details.some(d=>d.conditional)?'移動先の近くの「確定」で送信。実行時に動けなければ元の位置に留まります。':'「確定」で送信。別の駒や移動可能なマスをタップすると指し手を選び直せます。':doubleActive?`二度打ち：${draft.length}/2 手を指定。同じ駒をもう一度動かすこともできます。`:'◇ 駒と移動先を選ぶと、移動先の近くに「確定」が表示されます。';
+
  renderHistory();renderClock();renderConnection();
 }
 function renderConnection(){
@@ -176,7 +176,7 @@ async function animate(next){
  const session=gameSession;
  resolving=true;selection=null;draft=[];locked=false;pendingPromotion=null;$('promote-dialog').close();doubleActive=false;passing=false;render();
  const events=next.last;
- for(const event of events){if(event.to===undefined)continue;await new Promise(r=>setTimeout(r,380));if(session!==gameSession)return;if(event.ok)apply(game,event.side,event);game.last=[event];$('board-status').textContent=`${name(event.side)}：${event.text}${event.reason?'（'+event.reason+'）':''}`;renderBoard();}
+ for(const event of events){if(event.to===undefined)continue;await new Promise(r=>setTimeout(r,380));if(session!==gameSession)return;if(event.ok)apply(game,event.side,event);game.last=[event];renderBoard();}
  await new Promise(r=>setTimeout(r,350));if(session!==gameSession)return;game=next;resolving=false;
  if(mode==='cpu'&&game.winner===null)beginCPU();render();
  if(mode==='online')void ensureClock();
