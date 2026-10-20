@@ -26,11 +26,12 @@ function pieceHTML(p){return `<span class="piece ${p.s!==side?'enemy ':''}${p.t.
 function renderBoard(){
  const p=preview(),details=draftDetails(),edit=canAct()&&draft.length===(doubleActive?2:1)?draftEditContext(game,side,draft):null;
  const hintSelection=selection||edit?.selection,hintBoard=selection?p:edit?.board;
+ const beforeStart=!started&&mode==='cpu';$('board-start').hidden=!beforeStart;$('board').setAttribute('aria-label',beforeStart?'将棋盤・対局前':'将棋盤');
  $('board').classList.toggle('resolving',resolving);$('board').innerHTML='';
  const indices=Array.from({length:81},(_,i)=>side===0?i:80-i);
  $('files').innerHTML=(side===0?'９８７６５４３２１':'１２３４５６７８９').split('').map(v=>`<span>${v}</span>`).join('');
  $('ranks').innerHTML=(side===0?'一二三四五六七八九':'九八七六五四三二一').split('').map(v=>`<span>${v}</span>`).join('');
- for(const i of indices){const cell=document.createElement('button');cell.className='square';cell.setAttribute('role','gridcell');cell.dataset.index=i;const v=game.board[i];cell.setAttribute('aria-label',`${coord(i)}${v?' '+name(v.s)+'の'+LABELS[v.t]:' 空きマス'}`);cell.innerHTML=v?pieceHTML(v):'';cell.disabled=resolving;
+ for(const i of indices){const cell=document.createElement('button');cell.className='square';cell.setAttribute('role','gridcell');cell.dataset.index=i;const v=game.board[i];cell.setAttribute('aria-label',`${coord(i)}${v?' '+name(v.s)+'の'+LABELS[v.t]:' 空きマス'}`);cell.innerHTML=v?pieceHTML(v):'';cell.disabled=resolving||!started;
   const reserved=details.map((d,n)=>({...d,n})).filter(d=>d.m.to===i);
   if(reserved.length){const last=reserved.at(-1),ghost=document.createElement('span');ghost.className='reservation-ghost'+(v?' occupied-ghost':'');ghost.setAttribute('aria-hidden','true');ghost.innerHTML=pieceHTML({s:side,t:(last.m.promote||forced({t:last.t,s:side},i))?'+'+last.t:last.t});cell.append(ghost);const badge=document.createElement('span');badge.className='reservation-badge';badge.textContent=reserved.map(d=>d.n+1).join('・')+'手目';cell.append(badge);cell.setAttribute('aria-label',cell.getAttribute('aria-label')+' '+reserved.map(d=>`${d.n+1}手目の移動予定の位置`).join(' '));}
   if(hintSelection?.from===i)cell.classList.add('selected');
@@ -82,10 +83,11 @@ function render(){
  const readyOther=room?room.ready[1-side]:cpu!==null;
  $('my-ready').classList.toggle('ready',locked);$('their-ready').classList.toggle('ready',readyOther);$('my-ready-text').textContent=locked?'確定済み':draft.length?'選択中':'未選択';$('their-ready-text').textContent=readyOther?'確定済み':started?'思考中':'待機中';
  const details=draftDetails();
- const list=$('plan-list');if(draft.length)list.innerHTML=details.map(({m,t,conditional},i)=>`<div class="plan-move"><small>0${i+1}</small><b>${LABELS[t]}</b><span>${coord(m.to)}${m.drop?' 打':m.promote?' 成':''}</span>${conditional?'<small class="conditional-label">条件付き</small>':''}</div>`).join('');else list.innerHTML=`<div class="empty-plan"><span>${passing?'休':locked?'✓':'一'}</span><p>${passing?'このターンを、見送る。':locked?'一手を、確定しました。':'一手を、選びましょう。'}</p><small>${passing?'パスを確定してください':locked?'相手の選択を待っています':'駒 → 移動先 の順にタップ'}</small></div>`;
- $('confirm').innerHTML=!started?'対局をはじめる <span>→</span>':ended?'対局は終了しました':resolving?'駒を移動しています':room&&!room.joined?'ルームコードを表示 <span>↗</span>':locked?'相手の選択を待っています':passing?'パスを確定する <span>→</span>':doubleActive?`二度打ちを確定 (${draft.length}/2) <span>→</span>`:'この一手を確定 <span>→</span>';
+ const list=$('plan-list');if(draft.length)list.innerHTML=details.map(({m,t,conditional},i)=>`<div class="plan-move"><small>0${i+1}</small><b>${LABELS[t]}</b><span>${coord(m.to)}${m.drop?' 打':m.promote?' 成':''}</span>${conditional?'<small class="conditional-label">条件付き</small>':''}</div>`).join('');else list.innerHTML=`<div class="empty-plan"><span>${passing?'休':locked?'✓':'一'}</span><p>${!started?'対局開始前です。':passing?'このターンを、見送る。':locked?'一手を、確定しました。':'一手を、選びましょう。'}</p><small>${!started?'対局を始めると指し手を選べます':passing?'パスを確定してください':locked?'相手の選択を待っています':'駒 → 移動先 の順にタップ'}</small></div>`;
+ $('confirm').hidden=!started;
+ $('confirm').innerHTML=ended?'対局は終了しました':resolving?'駒を移動しています':room&&!room.joined?'ルームコードを表示 <span>↗</span>':locked?'相手の選択を待っています':passing?'パスを確定する <span>→</span>':doubleActive?`二度打ちを確定 (${draft.length}/2) <span>→</span>`:'この一手を確定 <span>→</span>';
  $('double').setAttribute('aria-pressed',String(doubleActive));
- $('confirm').disabled=ended||resolving||locked||waitingClock||(started&&(!room||room.joined)&&!passing&&draft.length!==(doubleActive?2:1));
+ $('confirm').disabled=!started||ended||resolving||locked||waitingClock||(started&&(!room||room.joined)&&!passing&&draft.length!==(doubleActive?2:1));
  $('undo').disabled=!canAct()||(!draft.length&&!selection&&!passing);$('pass').disabled=!canAct();$('resign').disabled=!canAct()&&!locked||!started||ended||resolving||room&&!room.joined;
  $('undo').textContent=draft.length===2?'↶ 2手目を取り消す':draft.length===1?'↶ 1手目を取り消す':'↶ 選び直す';
  $('clear-plan').hidden=draft.length<2;$('clear-plan').disabled=!canAct();
@@ -169,7 +171,7 @@ async function animate(next){
 }
 function resolveCPU(){if(resolving||!started||cpu===null||!locked)return;const plans=[];plans[side]=draft;plans[1-side]=cpu;const next=resolve(game,plans);cpuAt=null;void animate(next);}
 async function commit(){
- if(!started){setup('cpu');return;}if(room&&!room.joined){open('room-dialog');return;}if(!canAct())return;
+ if(!started)return;if(room&&!room.joined){open('room-dialog');return;}if(!canAct())return;
  try{const plan=validatePlan(game,side,passing?[]:draft);if(!passing&&plan.length!==(doubleActive?2:1))return;draft=plan;
   if(mode==='cpu'){locked=true;selection=null;render();resolveCPU();}
   else{submitting=true;locked=true;selection=null;render();const data=await request(`/api/rooms/${room.code}/plan`,{round:game.round,plan});await accept(data);}
@@ -180,11 +182,11 @@ $('near-confirm').onclick=e=>{e.preventDefault();e.stopPropagation();void commit
 function showResult(){for(const id of ['room-dialog','promote-dialog'])$(id).close();$('result-title').textContent=game.winner===side?'あなたの勝ちです。':'相手の勝ちです。';$('result-note').textContent=game.resigned!==undefined?`${name(game.resigned)}が投了しました。`:`${name(game.winner)}が王を取りました。`+` ${game.round-1}ターンの対局でした。`;open('end-dialog');}
 function setup(nextMode){$('cpu-settings').hidden=nextMode!=='cpu';$('online-settings').hidden=nextMode!=='online';$('room-error').textContent='';setupSide=side;document.querySelectorAll('[data-side]').forEach(b=>b.classList.toggle('selected',Number(b.dataset.side)===setupSide));open('setup-dialog');}
 function ask(title,description,action){$('confirm-title').textContent=title;$('confirm-description').textContent=description;confirmAction=action;open('confirm-dialog');}
-function newSetup(nextMode){if(started&&game.winner===null)ask('対局を終了しますか？','オンライン対局中は投了してから、新しい対局へ進みます。',async()=>{if(room?.joined)await request(`/api/rooms/${room.code}/resign`,{});gameSession++;resolving=false;started=false;room=null;sessionStorage.removeItem('awai-room');setup(nextMode);});else setup(nextMode);}
+function newSetup(nextMode){if(started&&game.winner===null)ask('対局を終了しますか？','オンライン対局中は投了してから、新しい対局へ進みます。',async()=>{if(room?.joined)await request(`/api/rooms/${room.code}/resign`,{});gameSession++;resolving=false;started=false;room=null;mode=nextMode;game=initial();draft=[];selection=null;doubleActive=false;locked=false;passing=false;deadline=null;cpu=null;cpuAt=null;sessionStorage.removeItem('awai-room');render();setup(nextMode);});else setup(nextMode);}
 $('confirm-yes').onclick=async()=>{const action=confirmAction;confirmAction=null;$('confirm-dialog').close();try{await action?.();}catch(e){toast(e.message);}};$('confirm-no').onclick=()=>{confirmAction=null;$('confirm-dialog').close();};
 $('cpu-mode').onclick=()=>newSetup('cpu');$('online-mode').onclick=()=>{if(room&&!room.joined){open('room-dialog');return;}newSetup('online');};$('new-game').onclick=()=>newSetup(mode);
 document.querySelectorAll('[data-side]').forEach(b=>b.onclick=()=>{setupSide=Number(b.dataset.side);document.querySelectorAll('[data-side]').forEach(x=>x.classList.toggle('selected',x===b));});
-$('start-cpu').onclick=()=>{$('setup-dialog').close();startCPU();};$('rules').onclick=()=>open('rules-dialog');$('guide-details').onclick=()=>open('rules-dialog');
+$('start-cpu').onclick=()=>{$('setup-dialog').close();startCPU();};$('board-start-button').onclick=()=>setup('cpu');$('guide-details').onclick=()=>open('rules-dialog');
 document.querySelectorAll('.dialog-close,.dialog-dismiss').forEach(b=>b.onclick=()=>b.closest('dialog').close());
 $('play-again').onclick=()=>{$('end-dialog').close();setup(mode);};
 $('resign').onclick=()=>ask('この一局を、投了しますか？','投了すると相手の勝利で対局が終了します。',async()=>{if(room){const next=await request(`/api/rooms/${room.code}/resign`,{});await accept(next);}else{game.winner=1-side;game.resigned=side;render();showResult();}});

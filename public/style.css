@@ -111,3 +111,9 @@
 .double-button small{font-size:10px;line-height:1.6}
 
 .double-button>span:nth-child(2){min-width:0;flex:1}@media(max-width:640px){.role-choice strong{font-size:17px}}
+
+.board-start{position:absolute;inset:0;z-index:13;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:16px;background:rgb(22 35 27 / 40%);border-radius:1px;color:#fffefa;text-align:center}
+.board-start>p{margin:0;font-size:13px;font-weight:600;letter-spacing:2px;text-shadow:0 1px 4px #14251b}
+.board-start .primary-button{width:min(240px,100%);min-height:48px;box-shadow:0 4px 18px #14251b55;border-color:#dce9d8;font-weight:600}
+.board-start>small{font-size:11px;letter-spacing:1px;text-shadow:0 1px 4px #14251b}
+@media(max-width:640px){.board-start{gap:10px;padding:12px}.board-start .primary-button{font-size:11px;letter-spacing:0;padding:10px;gap:6px;min-height:44px}.board-start>p{font-size:12px}}
