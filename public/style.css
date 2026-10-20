@@ -107,3 +107,7 @@
 }
 
 .rules-fine>summary{cursor:pointer;font-size:12px;font-weight:600;color:var(--green);padding:2px 0}.rules-fine[open]>summary{margin-bottom:16px}
+
+.double-button small{font-size:10px;line-height:1.6}
+
+.double-button>span:nth-child(2){min-width:0;flex:1}@media(max-width:640px){.role-choice strong{font-size:17px}}

@@ -88,8 +88,8 @@ export function failureReason(s,side,m){
   if(m.drop==='P'&&s.board.some((p,i)=>p?.s===side&&p.t==='P'&&i%9===m.to%9))return {reasonCode:'nifu',reason:'同じ筋に歩があり、二歩になります'};
  }else{
   const p=s.board[m.from];
-  if(!p){const exists=m.id!=null&&s.board.some(v=>v?.id===m.id);return exists?{reasonCode:'source_missing',reason:'予約元のマスに駒がありません'}:{reasonCode:'captured',reason:'予約した駒が取られています'};}
-  if(p.s!==side||(m.id!=null&&p.id!==m.id)){if(m.id!=null&&!s.board.some(v=>v?.id===m.id))return {reasonCode:'captured',reason:'予約した駒が取られています'};return {reasonCode:'replaced',reason:'予約元の駒が別の駒に変わっています'};}
+  if(!p){const exists=m.id!=null&&s.board.some(v=>v?.id===m.id);return exists?{reasonCode:'source_missing',reason:'移動前のマスに駒がありません'}:{reasonCode:'captured',reason:'動かす予定の駒が取られています'};}
+  if(p.s!==side||(m.id!=null&&p.id!==m.id)){if(m.id!=null&&!s.board.some(v=>v?.id===m.id))return {reasonCode:'captured',reason:'動かす予定の駒が取られています'};return {reasonCode:'replaced',reason:'動かす予定の駒が別の駒に変わっています'};}
   if(s.board[m.to]?.s===side)return {reasonCode:'friendly_target',reason:'移動先に自分の駒があります'};
   if(reservable(s,side,m))return {reasonCode:'blocked',reason:'進路が駒で塞がっています'};
  }
@@ -108,7 +108,7 @@ function applyMove(s,side,m,reservation){
 }
 export function validatePlan(s,side,plan){
  if(!Array.isArray(plan)||plan.length>2)throw new Error('指し手を確認してください。');
- if(plan.length===2&&(side!==s.initialSecond||s.doubleUsed))throw new Error('二度打ちは開始後手が一度だけ使えます。');
+ if(plan.length===2&&(side!==s.initialSecond||s.doubleUsed))throw new Error('二度打ちは最初に後手だった人が一度だけ使えます。');
  const copy=clone(s);const normalized=[];
  for(const raw of plan){if(!raw||typeof raw!=='object')throw new Error('指し手を確認してください。');const m={to:raw.to};if(raw.drop)m.drop=raw.drop;else {m.from=raw.from;m.id=copy.board[m.from]?.id;m.promote=raw.promote===true;}
   if(!projectReservation(copy,side,m).ok)throw new Error('選べない指し手です。');normalized.push(m);}
@@ -123,7 +123,7 @@ export function resolve(state,plans){
    if(s.winner!==null)break;
    const result=apply(s,side,m);if(side===leader&&result.capture)swap=true;
    const file=9-m.to%9,rank='一二三四五六七八九'[Math.floor(m.to/9)];
-   events.push({side,...m,...result,text:result.ok?`${file}${rank}${result.name}${m.drop?'打':''}${result.promoted?'成':''}${result.capture?'・取':''}`:'予約手が不発'});
+   events.push({side,...m,...result,text:result.ok?`${file}${rank}${result.name}${m.drop?'打':''}${result.promoted?'成':''}${result.capture?'・取':''}`:'指し手が不発'});
   }
  }
  s.last=events;s.history.push({round:s.round,leader,events,swap});if(swap)s.leader=1-leader;s.round++;return s;
