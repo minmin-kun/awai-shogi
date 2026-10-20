@@ -26,7 +26,7 @@ function pieceHTML(p){return `<span class="piece ${p.s!==side?'enemy ':''}${p.t.
 function renderBoard(){
  const p=preview(),details=draftDetails(),edit=canAct()&&draft.length===(doubleActive?2:1)?draftEditContext(game,side,draft):null;
  const hintSelection=selection||edit?.selection,hintBoard=selection?p:edit?.board;
- const beforeStart=!started&&mode==='cpu';$('board-start').hidden=!beforeStart;$('board').setAttribute('aria-label',beforeStart?'将棋盤・対局前':'将棋盤');
+ const beforeStart=!started;$('board-start').hidden=!beforeStart;$('board').setAttribute('aria-label',beforeStart?'将棋盤・対局前':'将棋盤');
  $('board').classList.toggle('resolving',resolving);$('board').innerHTML='';
  const indices=Array.from({length:81},(_,i)=>side===0?i:80-i);
  $('files').innerHTML=(side===0?'９８７６５４３２１':'１２３４５６７８９').split('').map(v=>`<span>${v}</span>`).join('');
@@ -94,7 +94,7 @@ function render(){
  const hasDouble=side===game.initialSecond;
  $('double').disabled=!canAct()||!hasDouble||game.doubleUsed;$('double').classList.toggle('enabled',hasDouble&&!game.doubleUsed);$('double').classList.toggle('activated',doubleActive);
  $('double-help').textContent=!hasDouble?'最初に後手だった人だけが使えます':game.doubleUsed?'この対局では使用済み':doubleActive?(draft.length===2?'2手が揃いました':'2手目を選んでください'):'タップして2手を選ぶ';$('double-status').textContent=!hasDouble?'対象外':game.doubleUsed?'使用済み':doubleActive?'選択中':'残り1回';
- $('cpu-mode').classList.toggle('active',mode==='cpu');$('online-mode').classList.toggle('active',mode==='online');
+ $('cpu-mode').checked=mode==='cpu';$('online-mode').checked=mode==='online';$('mode-hint').textContent=mode==='cpu'?'CPUと練習します':'ルームコードで対戦します';
  $('board-status').textContent=room&&!room.joined?`ルーム ${room.code} · 相手の参加を待っています` :ended?`${name(game.winner)}の勝利。おつかれさまでした。`:resolving?'指し手を実行しています。':locked?'選択を確定しました。半透明の駒と矢印は移動予定です。':selection?'緑の丸は現在移動可能、点線のマスは条件付きで指定できます。':doubleActive&&draft.length===1?'2手目は半透明の移動予定の駒、または別の駒を選んでください。':draft.length?details.some(d=>d.conditional)?'移動先の近くの「確定」で送信。実行時に動けなければ元の位置に留まります。':'「確定」で送信。別の駒や移動可能なマスをタップすると指し手を選び直せます。':doubleActive?`二度打ち：${draft.length}/2 手を指定。同じ駒をもう一度動かすこともできます。`:'◇ 駒と移動先を選ぶと、移動先の近くに「確定」が表示されます。';
  renderHistory();renderClock();renderPieceHelp();renderConnection();
 }
@@ -180,15 +180,18 @@ async function commit(){
 $('confirm').onclick=commit;
 $('near-confirm').onclick=e=>{e.preventDefault();e.stopPropagation();void commit();};
 function showResult(){for(const id of ['room-dialog','promote-dialog'])$(id).close();$('result-title').textContent=game.winner===side?'あなたの勝ちです。':'相手の勝ちです。';$('result-note').textContent=game.resigned!==undefined?`${name(game.resigned)}が投了しました。`:`${name(game.winner)}が王を取りました。`+` ${game.round-1}ターンの対局でした。`;open('end-dialog');}
-function setup(nextMode){$('cpu-settings').hidden=nextMode!=='cpu';$('online-settings').hidden=nextMode!=='online';$('room-error').textContent='';setupSide=side;document.querySelectorAll('[data-side]').forEach(b=>b.classList.toggle('selected',Number(b.dataset.side)===setupSide));open('setup-dialog');}
+function setup(nextMode){$('setup-title').textContent=nextMode==='cpu'?'CPUと対戦':'友だちと対戦';$('cpu-settings').hidden=nextMode!=='cpu';$('online-settings').hidden=nextMode!=='online';$('room-error').textContent='';setupSide=side;document.querySelectorAll('[data-side]').forEach(b=>b.classList.toggle('selected',Number(b.dataset.side)===setupSide));open('setup-dialog');}
 function ask(title,description,action){$('confirm-title').textContent=title;$('confirm-description').textContent=description;confirmAction=action;open('confirm-dialog');}
-function newSetup(nextMode){if(started&&game.winner===null)ask('対局を終了しますか？','オンライン対局中は投了してから、新しい対局へ進みます。',async()=>{if(room?.joined)await request(`/api/rooms/${room.code}/resign`,{});gameSession++;resolving=false;started=false;room=null;mode=nextMode;game=initial();draft=[];selection=null;doubleActive=false;locked=false;passing=false;deadline=null;cpu=null;cpuAt=null;sessionStorage.removeItem('awai-room');render();setup(nextMode);});else setup(nextMode);}
+function prepareGame(nextMode){
+ gameSession++;resolving=false;started=false;room=null;mode=nextMode;game=initial();draft=[];selection=null;inspectedPiece=null;pendingPromotion=null;doubleActive=false;locked=false;passing=false;deadline=null;cpu=null;cpuAt=null;sessionStorage.removeItem('awai-room');render();
+}
+function newSetup(nextMode){if(started&&game.winner===null)ask('対局を終了しますか？','オンライン対局中は投了してから、新しい対局へ進みます。',async()=>{if(room?.joined)await request(`/api/rooms/${room.code}/resign`,{});prepareGame(nextMode);});else prepareGame(nextMode);}
 $('confirm-yes').onclick=async()=>{const action=confirmAction;confirmAction=null;$('confirm-dialog').close();try{await action?.();}catch(e){toast(e.message);}};$('confirm-no').onclick=()=>{confirmAction=null;$('confirm-dialog').close();};
-$('cpu-mode').onclick=()=>newSetup('cpu');$('online-mode').onclick=()=>{if(room&&!room.joined){open('room-dialog');return;}newSetup('online');};$('new-game').onclick=()=>newSetup(mode);
+$('cpu-mode').onchange=()=>{if(!started&&$('cpu-mode').checked){mode='cpu';render();}};$('online-mode').onchange=()=>{if(!started&&$('online-mode').checked){mode='online';render();}};$('new-game').onclick=()=>newSetup(mode);
 document.querySelectorAll('[data-side]').forEach(b=>b.onclick=()=>{setupSide=Number(b.dataset.side);document.querySelectorAll('[data-side]').forEach(x=>x.classList.toggle('selected',x===b));});
-$('start-cpu').onclick=()=>{$('setup-dialog').close();startCPU();};$('board-start-button').onclick=()=>setup('cpu');$('guide-details').onclick=()=>open('rules-dialog');
+$('start-cpu').onclick=()=>{$('setup-dialog').close();startCPU();};$('board-start-button').onclick=()=>setup(mode);$('guide-details').onclick=()=>open('rules-dialog');
 document.querySelectorAll('.dialog-close,.dialog-dismiss').forEach(b=>b.onclick=()=>b.closest('dialog').close());
-$('play-again').onclick=()=>{$('end-dialog').close();setup(mode);};
+$('play-again').onclick=()=>{$('end-dialog').close();prepareGame(mode);};
 $('resign').onclick=()=>ask('この一局を、投了しますか？','投了すると相手の勝利で対局が終了します。',async()=>{if(room){const next=await request(`/api/rooms/${room.code}/resign`,{});await accept(next);}else{game.winner=1-side;game.resigned=side;render();showResult();}});
 async function request(path,body,auth=room?.token){
  const watching=!!room&&path.startsWith(`/api/rooms/${room.code}`);let reached=false;
