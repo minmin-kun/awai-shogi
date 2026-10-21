@@ -1,1 +1,16 @@
-{"name":"awai-shogi","private":true,"type":"module","scripts":{"dev":"node server.mjs","start":"node server.mjs","build":"node scripts/build.mjs","test":"node --test tests/*.test.mjs"},"devDependencies":{"wrangler":"^4.151.2"}}
+{
+  "name": "awai-shogi",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node server.mjs",
+    "start": "node server.mjs",
+    "build": "node scripts/build.mjs",
+    "test": "node --test tests/*.test.mjs",
+    "pretest": "node scripts/build.mjs --cloudflare"
+  },
+  "devDependencies": {
+    "miniflare": "^5.20261019.0-beta",
+    "wrangler": "^4.151.2"
+  }
+}

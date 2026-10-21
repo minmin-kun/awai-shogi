@@ -5,7 +5,21 @@
   "compatibility_date": "2026-10-20",
   "workers_dev": true,
   "send_metrics": false,
-  "build": { "command": "npm run build" },
+  "triggers": {"crons": ["15 * * * *"]},
+  "build": { "command": "npm run build -- --cloudflare" },
+  "assets": { "directory": "dist/client", "binding": "ASSETS", "run_worker_first": ["/api/*"] },
+  "ratelimits": [
+    {"name":"RATE_API","namespace_id":"1001","simple":{"limit":240,"period":60}},
+    {"name":"RATE_CREATE","namespace_id":"1002","simple":{"limit":10,"period":60}},
+    {"name":"RATE_ENTRY","namespace_id":"1003","simple":{"limit":30,"period":60}}
+  ],
+  "durable_objects": {
+    "bindings": [
+      { "name": "ROOMS", "class_name": "RoomChannel" },
+      { "name": "MATCHES", "class_name": "MatchChannel" }
+    ]
+  },
+  "migrations": [{ "tag": "realtime-v1", "new_sqlite_classes": ["RoomChannel", "MatchChannel"] }],
   "d1_databases": [
     {
       "binding": "DB",

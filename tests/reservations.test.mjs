@@ -57,6 +57,20 @@ test('a first mover cannot use a path that will clear only later in the turn',()
  const s=empty();put(s,76,'R',0);put(s,58,'R',1);
  const n=resolve(s,[validatePlan(s,0,[{from:76,to:40}]),validatePlan(s,1,[{from:58,to:57}])]);assert.equal(n.board[76].t,'R');assert.equal(n.board[40],null);assert(!n.last[0].ok);
 });
+test('double move cannot move a piece dropped by its first move, including forged ids',()=>{
+ const s=empty();s.hands[1].R=1;
+ for(const id of [undefined,999])assert.throws(()=>validatePlan(s,1,[{drop:'R',to:40},{from:40,to:49,id}]),/2手目/);
+ const before=clone(s);assert.throws(()=>validatePlan(s,1,[{drop:'R',to:40},{from:40,to:49}]));assert.deepEqual(s,before);
+});
+test('double move can still drop twice or move another existing piece after a drop',()=>{
+ const s=empty();s.hands[1]={R:1,P:1};put(s,18,'P',1);
+ const move=validatePlan(s,1,[{drop:'R',to:40},{from:18,to:27}]);const moved=resolve(s,[[],move]);assert.equal(moved.board[40].t,'R');assert.equal(moved.board[27].t,'P');
+ const drops=validatePlan(s,1,[{drop:'R',to:40},{drop:'P',to:41}]);const dropped=resolve(s,[[],drops]);assert.equal(dropped.board[40].t,'R');assert.equal(dropped.board[41].t,'P');
+});
+test('resolution also blocks a previously saved drop-then-move plan',()=>{
+ const s=empty();s.hands[1].R=1;
+ const n=resolve(s,[[],[{drop:'R',to:40},{from:40,to:49}]]);assert.equal(n.board[40].t,'R');assert.equal(n.board[49],null);assert.equal(n.last.at(-1).reasonCode,'fresh_drop');assert(n.doubleUsed);
+});
 test('reservations still reject impossible geometry, foreign pieces, missing inventory and dead drops',()=>{
  const s=initial();for(const m of [{from:54,to:44},{from:18,to:27},{from:54,to:54},{from:-1,to:20},{drop:'P',to:40},{from:54,to:45,promote:true},null])assert.throws(()=>validatePlan(s,0,[m]));
  s.hands[0]={P:1,N:1};assert(!reservable(s,0,{drop:'P',to:0}));assert(!reservable(s,0,{drop:'N',to:9}));

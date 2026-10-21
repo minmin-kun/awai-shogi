@@ -3,6 +3,12 @@ import {initial,clone,validatePlan} from '../src/engine.js';
 import {projectPlan,draftEditContext,draftPieceSelection,replacementDestination} from '../src/planning.js';
 const empty=()=>{const s=initial();s.board.fill(null);return s;};
 const put=(s,i,t,side)=>s.board[i]={id:i+100,t,s:side};
+test('a first-move drop cannot be selected while editing the second move',()=>{
+ const s=empty();s.hands[1].R=1;put(s,18,'P',1);
+ const plan=validatePlan(s,1,[{drop:'R',to:40},{from:18,to:27}]);
+ assert.equal(draftPieceSelection(s,1,plan,40),null);
+ assert(draftPieceSelection(s,1,plan,18));
+});
 test('a new destination replaces an unconfirmed reservation from its original square',()=>{
  const s=initial(),plan=validatePlan(s,0,[{from:70,to:71}]);const result=replacementDestination(s,0,plan,69);
  assert.deepEqual(result.draft,[]);assert.equal(result.move.from,70);assert.equal(result.move.to,69);assert.equal(result.move.id,s.board[70].id);assert.equal(result.board.board[70].t,'R');

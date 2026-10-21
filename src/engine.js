@@ -1,5 +1,7 @@
 export const LABELS={K:'王',R:'飛',B:'角',G:'金',S:'銀',N:'桂',L:'香',P:'歩', '+R':'龍','+B':'馬','+S':'全','+N':'圭','+L':'杏','+P':'と'};
+export function pieceLabel(piece){return piece.t==='K'&&piece.s===0?'玉':LABELS[piece.t];}
 export const HAND=['R','B','G','S','N','L','P'];
+export const MAX_ROUNDS=1000;
 const goldSteps=[[-1,-1],[0,-1],[1,-1],[-1,0],[1,0],[0,1]];
 const kingSteps=[[-1,-1],[0,-1],[1,-1],[-1,0],[1,0],[-1,1],[0,1],[1,1]];
 const straightRays=[[0,-1],[-1,0],[1,0],[0,1]],diagonalRays=[[-1,-1],[1,-1],[-1,1],[1,1]];
@@ -103,30 +105,35 @@ function applyMove(s,side,m,reservation){
  // A drop never captures, even when its currently occupied target is reserved.
  const captured=!m.drop&&s.board[m.to]?.s!==side?s.board[m.to]:null;
  if(captured){if(captured.t==='K')s.winner=side;else{const t=captured.t.replace('+','');s.hands[side][t]=(s.hands[side][t]||0)+1;}}
- const name=LABELS[p.t];if(!m.drop&&(m.promote||forced(p,m.to)))p={...p,t:'+'+p.t};s.board[m.to]=p;
- return {ok:true,capture:!!captured,name,promoted:name!==LABELS[p.t]};
+ const name=pieceLabel(p);if(!m.drop&&(m.promote||forced(p,m.to)))p={...p,t:'+'+p.t};s.board[m.to]=p;
+ return {ok:true,capture:!!captured,name,promoted:name!==pieceLabel(p)};
 }
 export function validatePlan(s,side,plan){
  if(!Array.isArray(plan)||plan.length>2)throw new Error('指し手を確認してください。');
- if(plan.length===2&&(side!==s.initialSecond||s.doubleUsed))throw new Error('二度打ちは最初に後手だった人が一度だけ使えます。');
+ if(plan.length===2&&(side!==s.initialSecond||s.doubleUsed))throw new Error('二手打ちは最初に後手だった人が一度だけ使えます。');
  const copy=clone(s);const normalized=[];
  for(const raw of plan){if(!raw||typeof raw!=='object')throw new Error('指し手を確認してください。');const m={to:raw.to};if(raw.drop)m.drop=raw.drop;else {m.from=raw.from;m.id=copy.board[m.from]?.id;m.promote=raw.promote===true;}
+  if(normalized[0]?.drop&&!m.drop&&m.from===normalized[0].to)throw new Error('二手打ちの1手目に打った駒は、2手目では動かせません。');
   if(!projectReservation(copy,side,m).ok)throw new Error('選べない指し手です。');normalized.push(m);}
  return normalized;
 }
 export function resolve(state,plans){
  const s=clone(state),leader=s.leader;let swap=false;const events=[];
+ if(s.winner!==null)return s;
+ if(s.round>MAX_ROUNDS){s.winner=-1;s.endReason='turn_limit';return s;}
  if(plans[s.initialSecond].length===2)s.doubleUsed=true;
  for(const side of [leader,1-leader]){
   if(!plans[side].length)events.push({side,text:'パス',ok:true});
-  for(const m of plans[side]){
+  for(const [index,m] of plans[side].entries()){
    if(s.winner!==null)break;
-   const result=apply(s,side,m);if(side===leader&&result.capture)swap=true;
+   const first=plans[side][0],blocked=index===1&&first.drop&&!m.drop&&m.from===first.to;
+   const result=blocked?{ok:false,capture:false,reasonCode:'fresh_drop',reason:'1手目に打った駒は2手目では動かせません'}:apply(s,side,m);if(side===leader&&result.capture)swap=true;
    const file=9-m.to%9,rank='一二三四五六七八九'[Math.floor(m.to/9)];
    events.push({side,...m,...result,text:result.ok?`${file}${rank}${result.name}${m.drop?'打':''}${result.promoted?'成':''}${result.capture?'・取':''}`:'指し手が不発'});
   }
  }
- s.last=events;s.history.push({round:s.round,leader,events,swap});if(swap)s.leader=1-leader;s.round++;return s;
+ s.last=events;s.history.push({round:s.round,leader,events,swap});if(swap)s.leader=1-leader;s.round++;
+ if(s.winner===null&&s.round>MAX_ROUNDS){s.winner=-1;s.endReason='turn_limit';}return s;
 }
 export function cpuPlan(s,side){
  const values={K:100000,R:900,B:800,G:500,S:400,N:280,L:250,P:100};
@@ -135,5 +142,5 @@ export function cpuPlan(s,side){
  for(const m of list){const p=m.drop?{t:m.drop,s:side}:s.board[m.from];const dest=s.board[m.to];const danger=enemies.some(e=>e.to===m.to);const forward=m.drop?0:(Math.floor(m.to/9)-Math.floor(m.from/9))*(side===0?-1:1);
   const n=(dest?values[dest.t.replace('+','')]*1.5:0)-(danger?values[p.t.replace('+','')]*0.9:0)+(m.promote?80:0)+forward*5+Math.random()*25;
   if(n>score){score=n;best=m;}}
- let plan=[best];if(side===s.initialSecond&&!s.doubleUsed&&(s.round>10||s.board[best.to]?.t==='K')&&Math.random()<0.18){const copy=clone(s);apply(copy,side,best);const next=moves(copy,side);if(next.length)plan.push(next.sort((a,b)=>(values[copy.board[b.to]?.t]||0)-(values[copy.board[a.to]?.t]||0))[0]);}return plan;
+ let plan=[best];if(side===s.initialSecond&&!s.doubleUsed&&(s.round>10||s.board[best.to]?.t==='K')&&Math.random()<0.18){const copy=clone(s);apply(copy,side,best);const next=moves(copy,side).filter(m=>!best.drop||m.drop||m.from!==best.to);if(next.length)plan.push(next.sort((a,b)=>(values[copy.board[b.to]?.t]||0)-(values[copy.board[a.to]?.t]||0))[0]);}return plan;
 }

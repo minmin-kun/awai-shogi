@@ -1,5 +1,7 @@
-import {initial,clone,LABELS,HAND,legal,reservable,projectReservation,apply,canPromote,forced,validatePlan,resolve,cpuPlan} from '/engine.js';
+import {initial,clone,LABELS,pieceLabel,HAND,legal,reservable,projectReservation,apply,canPromote,forced,validatePlan,resolve,cpuPlan} from '/engine.js';
 import {draftEditContext,draftPieceSelection,replacementDestination,nifuWarnings} from '/planning.js';
+import {RealtimeChannel} from '/transport.js';
+import {quotaFromPayload,quotaCopy,readServiceResponse,serviceError} from '/service-errors.js';
 const $=id=>document.getElementById(id);
 const mobileGuide=matchMedia('(max-width:640px)');
 $('guide-content').open=!mobileGuide.matches;
@@ -28,16 +30,35 @@ syncMobileControls();
 const mobileControlsObserver=new ResizeObserver(()=>{document.body.style.setProperty('--mobile-controls-height',`${$('mobile-controls').offsetHeight}px`);});
 mobileControlsObserver.observe($('mobile-controls'));
 let game=initial(),side=0,mode='cpu',started=false,draft=[],selection=null,doubleActive=false,locked=false,passing=false,resolving=false,deadline=null,cpu=null,cpuAt=null,room=null,offset=0,polling=false,submitting=false,startingClock=false,setupSide=0,pendingPromotion=null,confirmAction=null,lastErrorAt=0;
-let connectionState='online',lastContact=Date.now();
-let gameSession=0;
+let connectionState='online',lastContact=Date.now(),serviceQuota=null;
+let gameSession=0,roomChannel=null,matchChannel=null,roomStateChain=Promise.resolve(),enteringMatch=false;
+function closeRoomChannel(){roomChannel?.close();roomChannel=null;}
+function connectRoom(){
+ closeRoomChannel();if(room?.transport!=='websocket')return;
+ const code=room.code;
+ roomChannel=new RealtimeChannel(`/api/rooms/${code}/socket`,room.token,{
+  onState:data=>{if(room?.code===code)void accept(data);},
+  onQuota:showServiceQuota,
+  onStatus:status=>{if(room?.code===code){connectionState=status;lastContact=Date.now();render();}}
+ });
+}
+
 const name=s=>s===side?'あなた':mode==='cpu'?'対戦相手':'相手';
 const coord=i=>`${9-i%9}${'一二三四五六七八九'[Math.floor(i/9)]}`;
 const toast=message=>{$('toast').textContent=message;$('toast').classList.add('visible');clearTimeout(toast.timer);toast.timer=setTimeout(()=>$('toast').classList.remove('visible'),3300);};
 const open=id=>{if(!$(id).open)$(id).showModal();};
-const canAct=()=>started&&!locked&&!resolving&&game.winner===null&&(!room||(room.joined&&deadline!==null));
+const canAct=()=>started&&!locked&&!resolving&&game.winner===null&&(!room||(!serviceQuota&&room.joined&&deadline!==null&&(room.transport!=='websocket'||connectionState==='online')));
+function showServiceQuota(value){
+ const quota=quotaFromPayload(value);if(!quota||serviceQuota)return;
+ serviceQuota=quota;connectionState='quota';roomChannel?.close();matchChannel?.close();
+ const copy=quotaCopy(quota,!!room||!!sessionStorage.getItem('awai-room'));
+ for(const key of ['title','message','recovery','note'])$('quota-'+key).textContent=copy[key];
+ for(const dialog of document.querySelectorAll('dialog[open]'))dialog.close();
+ if(room?.game)render();else renderConnection();open('quota-dialog');
+}
 const preview=()=>{const p=clone(game);for(const m of draft)projectReservation(p,side,m);return p;};
 function draftDetails(){const p=clone(game);return draft.map(m=>{const detail={m,t:m.drop||p.board[m.from]?.t||'P',conditional:!legal(p,side,m)};projectReservation(p,side,m);return detail;});}
-function pieceHTML(p){return `<span class="piece ${p.s!==side?'enemy ':''}${p.t.startsWith('+')?'promoted':''}"><span>${LABELS[p.t]}</span></span>`;}
+function pieceHTML(p){return `<span class="piece ${p.s!==side?'enemy ':''}${p.t.startsWith('+')?'promoted':''}"><span>${pieceLabel(p)}</span></span>`;}
 function renderBoard(){
  const p=preview(),details=draftDetails(),edit=canAct()&&draft.length===(doubleActive?2:1)?draftEditContext(game,side,draft):null;
  const hintSelection=selection||edit?.selection,hintBoard=selection?p:edit?.board;
@@ -46,7 +67,7 @@ function renderBoard(){
  const indices=Array.from({length:81},(_,i)=>side===0?i:80-i);
  $('files').innerHTML=(side===0?'９８７６５４３２１':'１２３４５６７８９').split('').map(v=>`<span>${v}</span>`).join('');
  $('ranks').innerHTML=(side===0?'一二三四五六七八九':'九八七六五四三二一').split('').map(v=>`<span>${v}</span>`).join('');
- for(const i of indices){const cell=document.createElement('button');cell.className='square';cell.setAttribute('role','gridcell');cell.dataset.index=i;const v=game.board[i];cell.setAttribute('aria-label',`${coord(i)}${v?' '+name(v.s)+'の'+LABELS[v.t]:' 空きマス'}`);cell.innerHTML=v?pieceHTML(v):'';cell.disabled=resolving||!started;
+ for(const i of indices){const cell=document.createElement('button');cell.className='square';cell.setAttribute('role','gridcell');cell.dataset.index=i;const v=game.board[i];cell.setAttribute('aria-label',`${coord(i)}${v?' '+name(v.s)+'の'+pieceLabel(v):' 空きマス'}`);cell.innerHTML=v?pieceHTML(v):'';cell.disabled=resolving||!started;
   const reserved=details.map((d,n)=>({...d,n})).filter(d=>d.m.to===i);
   if(reserved.length){const last=reserved.at(-1),ghost=document.createElement('span');ghost.className='reservation-ghost'+(v?' occupied-ghost':'');ghost.setAttribute('aria-hidden','true');ghost.innerHTML=pieceHTML({s:side,t:(last.m.promote||forced({t:last.t,s:side},i))?'+'+last.t:last.t});cell.append(ghost);const badge=document.createElement('span');badge.className='reservation-badge';badge.textContent=reserved.map(d=>['①','②'][d.n]).join('');badge.setAttribute('aria-hidden','true');cell.append(badge);cell.setAttribute('aria-label',cell.getAttribute('aria-label')+' '+reserved.map(d=>`${d.n+1}手目の移動予定の位置`).join(' '));}
   if(hintSelection?.from===i)cell.classList.add('selected');
@@ -90,13 +111,13 @@ function render(){
  $('top-order').textContent=ownFirst?'後手 · 2番目に移動':'先手 · 1番目に移動';$('bottom-order').textContent=ownFirst?'先手 · 1番目に移動':'後手 · 2番目に移動';
  $('top-order').classList.toggle('first',!ownFirst);$('bottom-order').classList.toggle('first',ownFirst);
  for(const [id,player]of [['my-double',side],['their-double',1-side]]){
-  const badge=$(id),label=game.doubleUsed?'済':'可能';badge.hidden=player!==game.initialSecond;badge.dataset.used=String(game.doubleUsed);badge.setAttribute('aria-label',`${name(player)}の二度打ち：${game.doubleUsed?'使用済み':'利用可能'}`);
+  const badge=$(id),label=game.doubleUsed?'済':'可能';badge.hidden=player!==game.initialSecond;badge.dataset.used=String(game.doubleUsed);badge.setAttribute('aria-label',`${name(player)}の二手打ち：${game.doubleUsed?'使用済み':'利用可能'}`);
   const value=badge.querySelector('strong');if(value.textContent!==label)value.textContent=label;
  }
  const ended=game.winner!==null;
  const waitingClock=room?.joined&&deadline===null&&!ended&&!resolving;
  $('phase-title').textContent=ended?'対局終了':resolving?'移動中':!started?'対局準備':room&&!room.joined?'相手を待っています':waitingClock?'持ち時間を準備中':'考え中';
- $('phase-description').textContent=ended?`${name(game.winner)}の勝ちです。`:resolving?'決めた一手を、順番に実行します。':!started?'準備ができたら、はじめましょう。':room&&!room.joined?'ルームコードを相手に伝えてください。':waitingClock?'盤面の準備ができたら30秒を開始します。':locked?'相手の確定を待っています。':'相手の一手を読み、駒を選びましょう。';
+ $('phase-description').textContent=ended?(game.winner===-1?'引き分けです。':`${name(game.winner)}の勝ちです。`):resolving?'決めた一手を、順番に実行します。':!started?'準備ができたら、はじめましょう。':room&&!room.joined?'ルームコードを相手に伝えてください。':waitingClock?'盤面の準備ができたら30秒を開始します。':locked?'相手の確定を待っています。':'相手の一手を読み、駒を選びましょう。';
  if(started&&!ended&&!document.body.classList.contains('in-game')&&mobileGuide.matches)$('guide-content').open=false;
  document.body.classList.toggle('in-game',started&&!ended);
  const showMobileControls=mobileGuide.matches&&started&&!ended;$('mobile-controls').hidden=!showMobileControls;document.body.classList.toggle('has-mobile-controls',showMobileControls);
@@ -104,13 +125,13 @@ function render(){
  const readyOther=room?room.ready[1-side]:cpu!==null;
  $('my-ready').classList.toggle('ready',locked);$('their-ready').classList.toggle('ready',readyOther);$('my-ready-text').textContent=locked?'確定済み':draft.length?'選択中':'未選択';$('their-ready-text').textContent=readyOther?'確定済み':started?'考え中':'待機中';
  const details=draftDetails();
- const list=$('plan-list');if(draft.length)list.innerHTML=details.map(({m,t,conditional},i)=>`<div class="plan-move"><small>0${i+1}</small><b>${LABELS[t]}</b><span>${coord(m.to)}${m.drop?' 打':m.promote?' 成':''}</span>${conditional?'<small class="conditional-label">条件付き</small>':''}</div>`).join('');else list.innerHTML=`<div class="empty-plan"><span>${passing?'休':locked?'✓':'一'}</span><p>${!started?'対局開始前です。':passing?'このターンを、見送る。':locked?'一手を、確定しました。':'一手を、選びましょう。'}</p><small>${!started?'対局を始めると指し手を選べます':passing?'パスを確定してください':locked?'相手の選択を待っています':'駒 → 移動先 の順にタップ'}</small></div>`;
+ const list=$('plan-list');if(draft.length)list.innerHTML=details.map(({m,t,conditional},i)=>`<div class="plan-move"><small>0${i+1}</small><b>${pieceLabel({t,s:side})}</b><span>${coord(m.to)}${m.drop?' 打':m.promote?' 成':''}</span>${conditional?'<small class="conditional-label">条件付き</small>':''}</div>`).join('');else list.innerHTML=`<div class="empty-plan"><span>${passing?'休':locked?'✓':'一'}</span><p>${!started?'対局開始前です。':passing?'このターンを、見送る。':locked?'一手を、確定しました。':'一手を、選びましょう。'}</p><small>${!started?'対局を始めると指し手を選べます':passing?'パスを確定してください':locked?'相手の選択を待っています':'駒 → 移動先 の順にタップ'}</small></div>`;
  const warnings=canAct()&&!passing?nifuWarnings(game,side,draft):[],warning=$('nifu-warning');warning.hidden=warnings.length===0;
  if(warnings.length){const where=warnings.map(w=>`${doubleActive?`${w.index+1}手目・`:''}${coord(w.to)}`).join('、'),message=`二歩に注意：${where}は、同じ筋に自分の歩があります。実行時も残っていると打てません。このまま確定することはできます。`;if(warning.textContent!==message)warning.textContent=message;}
  $('confirm').hidden=!started;
- $('confirm').innerHTML=ended?'対局は終了しました':resolving?'駒を移動しています':room&&!room.joined?'ルームコードを表示 <span>↗</span>':locked?'相手の選択を待っています':passing?'パスを確定する <span>→</span>':doubleActive?`二度打ちを確定 (${draft.length}/2) <span>→</span>`:'この一手を確定 <span>→</span>';
+ $('confirm').innerHTML=ended?'対局を終わる <span>→</span>':resolving?'駒を移動しています':room&&!room.joined?'ルームコードを表示 <span>↗</span>':locked?'相手の選択を待っています':passing?'パスを確定する <span>→</span>':doubleActive?`二手打ちを確定 (${draft.length}/2) <span>→</span>`:'この一手を確定 <span>→</span>';
  $('double').setAttribute('aria-pressed',String(doubleActive));
- $('confirm').disabled=!started||ended||resolving||locked||waitingClock||(started&&(!room||room.joined)&&!passing&&draft.length!==(doubleActive?2:1));
+ $('confirm').disabled=!ended&&(!started||resolving||locked||waitingClock||(started&&(!room||room.joined)&&!passing&&draft.length!==(doubleActive?2:1)));
  $('undo').disabled=!canAct()||(!draft.length&&!selection&&!passing);$('pass').disabled=!canAct();$('resign').disabled=!canAct()&&!locked||!started||ended||resolving||room&&!room.joined;
  $('undo').textContent=draft.length===2?'↶ 2手目を取り消す':draft.length===1?'↶ 1手目を取り消す':'↶ 選び直す';
  $('clear-plan').hidden=draft.length<2;$('clear-plan').disabled=!canAct();
@@ -119,20 +140,20 @@ function render(){
  $('double-help').textContent=!hasDouble?'最初に後手だった人だけが使えます':game.doubleUsed?'この対局では使用済み':doubleActive?'選択中・もう一度押すと解除':'2手続けて指す';
  const doubleNote=$('double-note');doubleNote.hidden=!doubleActive||!canAct();
  const editHint=draft.length===2?'1手目を変えるには「2手目を取り消す」→「1手目を取り消す」の順に戻り、選び直してください。':draft.length===1?'1手目を変えるには「1手目を取り消す」で戻り、選び直してください。':'2手を順に選びます。選んだ1手目は「1手目を取り消す」で選び直せます。';
- const note=editHint+' 二度打ちをやめるときは、ボタンをもう一度押してください。';if(doubleNote.textContent!==note)doubleNote.textContent=note;
+ const note=editHint+' 1手目に打った駒は、2手目では動かせません。二手打ちをやめるときは、ボタンをもう一度押してください。';if(doubleNote.textContent!==note)doubleNote.textContent=note;
  $('cpu-mode').checked=mode==='cpu';$('online-mode').checked=mode==='online';$('random-mode').checked=mode==='random';$('mode-hint').textContent=mode==='cpu'?'CPUと練習します':mode==='random'?'相手を自動で探します':'ルームコードで対戦します';
 
  renderHistory();renderClock();renderConnection();
 }
 function renderConnection(){
  const panel=$('connection-panel');panel.hidden=mode!=='online'||!room;if(panel.hidden)return;
- const ended=game.winner!==null,self=ended?'ended':navigator.onLine===false?'offline':Date.now()-lastContact>12000?'reconnecting':connectionState;
+ const ended=game.winner!==null,self=ended?'ended':serviceQuota?'quota':navigator.onLine===false?'offline':room.transport!=='websocket'&&Date.now()-lastContact>12000?'reconnecting':connectionState;
  const peer=self==='online'?(room.presence?.[1-side]||'unknown'):'unknown';
  const set=(id,value)=>{if($(id).textContent!==value)$(id).textContent=value;};
  $('self-connection').dataset.state=self;$('peer-connection').dataset.state=peer;
- set('self-connection',ended?'あなた：対局終了':self==='online'?'あなた：接続中':self==='offline'?'あなた：オフライン':'あなた：再接続中');
- set('peer-connection',ended?'相手：対局終了':!room.joined?'相手：参加待ち':peer==='online'?'相手：接続中':peer==='disconnected'?'相手：応答なし':'相手：接続確認中');
- set('connection-note',ended?'対局は終了しました。':self!=='online'?'サーバーとの通信を再試行しています。接続が戻ると盤面を同期します。':!room.joined?'ルームコードを相手に伝えてください。':peer==='disconnected'?'相手から12秒以上応答がありません。切断や画面の非表示の可能性があります。持ち時間は通常どおり進みます。':peer==='unknown'?'相手の通信状態を確認しています。':'通信状態と指し手の確定状況は、それぞれ別に表示しています。');
+ set('self-connection',ended?'あなた：対局終了':self==='quota'?'あなた：利用上限':self==='online'?'あなた：接続中':self==='offline'?'あなた：オフライン':'あなた：再接続中');
+ set('peer-connection',ended?'相手：対局終了':!room.joined?'相手：参加待ち':peer==='online'?'相手：接続中':peer==='disconnected'?(room.transport==='websocket'?'相手：接続なし':'相手：応答なし'):'相手：接続確認中');
+ set('connection-note',ended?'対局は終了しました。':self==='quota'?'利用上限に達したため、オンライン対局の通信を止めています。対局時間の停止は保証できません。':self!=='online'?'サーバーとの通信を再試行しています。接続が戻ると盤面を同期します。':!room.joined?'ルームコードを相手に伝えてください。':peer==='disconnected'?(room.transport==='websocket'?'相手との接続が切れています。再接続を待っています。持ち時間は通常どおり進みます。':'相手から12秒以上応答がありません。切断や画面の非表示の可能性があります。持ち時間は通常どおり進みます。'):peer==='unknown'?'相手の通信状態を確認しています。':'通信状態と指し手の確定状況は、それぞれ別に表示しています。');
  if(room.joined&&!ended){if(self!=='online')set('their-ready-text','通信確認中');else if(peer==='disconnected')set('their-ready-text','応答なし');else if(peer==='unknown')set('their-ready-text','接続確認中');else set('their-ready-text',room.ready[1-side]?'確定済み':'考え中');}
 }
 function renderHistory(){
@@ -141,6 +162,7 @@ function renderHistory(){
  $('history').innerHTML=game.history.slice().reverse().map(h=>`<div class="history-round"><h3>第 ${h.round} ターン${h.swap?'<span>⇄ 順序交代</span>':''}</h3>${h.events.map(e=>`<div class="history-event"><i class="side-dot ${e.side===side?'self':''}"></i><span>${e.text}${e.reason?`<span class="history-reason">${e.reason}</span>`:''}</span><small>${name(e.side)}</small></div>`).join('')}</div>`).join('');
 }
 function renderClock(){
+ if(room&&serviceQuota){$('seconds').textContent='—';$('timer-bar').style.width='0%';$('timer-bar').classList.remove('urgent');$('clock-display').classList.remove('urgent');return;}
  const remaining=!started||!deadline?30:game.winner!==null||resolving?0:Math.max(0,Math.ceil((deadline-Date.now()-offset)/1000));
  const urgent=started&&deadline!==null&&game.winner===null&&!resolving&&!locked&&remaining>0&&remaining<10;
  $('seconds').textContent=String(remaining).padStart(2,'0');$('timer-bar').style.width=`${remaining/30*100}%`;$('timer-bar').classList.toggle('urgent',urgent);$('clock-display').classList.toggle('urgent',urgent);
@@ -157,6 +179,7 @@ function pick(i){
  const p=preview();if(selection&&reservable(p,side,{...selection,to:i})){
   reserveDestination(p,selection,i);return;
  }
+ if(draft.length===1&&draft[0].drop&&i===draft[0].to){toast('1手目に打った駒は、2手目では動かせません。');return;}
  if(p.board[i]?.s===side){selection={from:i,id:p.board[i].id};passing=false;render();}else{selection=null;render();}
 }
 function reserveDestination(state,chosen,to){
@@ -172,7 +195,7 @@ $('pass').onclick=()=>{if(!canAct())return;draft=[];selection=null;doubleActive=
 $('double').onclick=()=>{if(!canAct()||side!==game.initialSecond||game.doubleUsed)return;doubleActive=!doubleActive;if(!doubleActive)draft=draft.slice(0,1);passing=false;selection=null;render();};
 function startCPU(){
  gameSession++;
- room=null;sessionStorage.removeItem('awai-room');mode='cpu';side=setupSide;game=initial();started=true;draft=[];selection=null;doubleActive=false;locked=false;passing=false;resolving=false;offset=0;beginCPU();render();
+ closeRoomChannel();room=null;sessionStorage.removeItem('awai-room');mode='cpu';side=setupSide;game=initial();started=true;draft=[];selection=null;doubleActive=false;locked=false;passing=false;resolving=false;offset=0;beginCPU();render();
 }
 function beginCPU(){deadline=Date.now()+30000;cpu=null;cpuAt=Date.now()+1800+Math.random()*2200;}
 async function animate(next){
@@ -193,13 +216,13 @@ async function commit(){
   else{submitting=true;locked=true;selection=null;render();const data=await request(`/api/rooms/${room.code}/plan`,{round:game.round,plan});await accept(data);}
  }catch(e){locked=false;toast(e.message);render();}finally{submitting=false;}
 }
-$('confirm').onclick=commit;
+$('confirm').onclick=()=>{if(started&&game.winner!==null)finishGame();else void commit();};
 $('near-confirm').onclick=e=>{e.preventDefault();e.stopPropagation();void commit();};
-function showResult(){for(const id of ['room-dialog','promote-dialog'])$(id).close();$('result-title').textContent=game.winner===side?'あなたの勝ちです。':'相手の勝ちです。';$('result-note').textContent=game.resigned!==undefined?`${name(game.resigned)}が投了しました。`:`${name(game.winner)}が王を取りました。`+` ${game.round-1}ターンの対局でした。`;open('end-dialog');}
+function showResult(){for(const id of ['room-dialog','promote-dialog'])$(id).close();$('result-title').textContent=game.winner===-1?'引き分けです。':game.winner===side?'あなたの勝ちです。':'相手の勝ちです。';$('result-note').textContent=game.winner===-1?'対局が1,000ターンに達したため、引き分けとなりました。':game.resigned!==undefined?`${name(game.resigned)}が投了しました。`:`${name(game.winner)}が王を取りました。`+` ${game.round-1}ターンの対局でした。`;open('end-dialog');}
 function setup(nextMode){if(nextMode==='random'){void startMatch();return;}$('setup-title').textContent=nextMode==='cpu'?'CPUと対戦':'友だちと対戦';$('cpu-settings').hidden=nextMode!=='cpu';$('online-settings').hidden=nextMode!=='online';$('room-error').textContent='';setupSide=side;document.querySelectorAll('[data-side]').forEach(b=>b.classList.toggle('selected',Number(b.dataset.side)===setupSide));open('setup-dialog');}
 function ask(title,description,action){$('confirm-title').textContent=title;$('confirm-description').textContent=description;confirmAction=action;open('confirm-dialog');}
 function prepareGame(nextMode){
- gameSession++;resolving=false;started=false;room=null;mode=nextMode;game=initial();draft=[];selection=null;pendingPromotion=null;doubleActive=false;locked=false;passing=false;deadline=null;cpu=null;cpuAt=null;sessionStorage.removeItem('awai-room');render();
+ closeRoomChannel();gameSession++;resolving=false;started=false;room=null;mode=nextMode;game=initial();draft=[];selection=null;pendingPromotion=null;doubleActive=false;locked=false;passing=false;deadline=null;cpu=null;cpuAt=null;side=0;setupSide=0;offset=0;connectionState=navigator.onLine===false?'offline':'online';lastContact=Date.now();confirmAction=null;sessionStorage.removeItem('awai-room');$('room-code').value='';$('room-error').textContent='';clearTimeout(toast.timer);$('toast').classList.remove('visible');render();
 }
 $('confirm-yes').onclick=async()=>{const action=confirmAction;confirmAction=null;$('confirm-dialog').close();try{await action?.();}catch(e){toast(e.message);}};$('confirm-no').onclick=()=>{confirmAction=null;$('confirm-dialog').close();};
 $('cpu-mode').onchange=()=>{if(!started&&$('cpu-mode').checked){mode='cpu';render();}};$('online-mode').onchange=()=>{if(!started&&$('online-mode').checked){mode='online';render();}};
@@ -207,52 +230,67 @@ document.querySelectorAll('[data-side]').forEach(b=>b.onclick=()=>{setupSide=Num
 $('random-mode').onchange=()=>{if(!started&&$('random-mode').checked){mode='random';render();}};
 $('start-cpu').onclick=()=>{$('setup-dialog').close();startCPU();};$('board-start-button').onclick=()=>setup(mode);$('guide-details').onclick=()=>open('rules-dialog');
 document.querySelectorAll('.dialog-close,.dialog-dismiss').forEach(b=>b.onclick=()=>b.closest('dialog').close());
-$('play-again').onclick=()=>{$('end-dialog').close();prepareGame(room?.random?'random':mode);};
+function finishGame(){const nextMode=room?.random?'random':mode;for(const dialog of document.querySelectorAll('dialog[open]'))dialog.close();prepareGame(nextMode);}
+$('play-again').onclick=finishGame;
+$('end-dialog').querySelector('.dialog-close').onclick=finishGame;
+$('end-dialog').addEventListener('cancel',e=>{e.preventDefault();finishGame();});
 $('resign').onclick=()=>ask('この一局を、投了しますか？','投了すると相手の勝利で対局が終了します。',async()=>{if(room){const next=await request(`/api/rooms/${room.code}/resign`,{});await accept(next);}else{game.winner=1-side;game.resigned=side;render();showResult();}});
 async function request(path,body,auth=room?.token){
+ if(serviceQuota){open('quota-dialog');throw serviceError(serviceQuota,503);}
+ try{
+ if(room?.transport==='websocket'&&roomChannel&&path.startsWith(`/api/rooms/${room.code}`)){const action=path.split('/')[4]||'sync';return roomChannel.call(action,body);}
+ if(matchChannel&&path.startsWith('/api/matchmaking'))return matchChannel.call(path.endsWith('/cancel')?'cancel':'join');
  const watching=!!room&&path.startsWith(`/api/rooms/${room.code}`);let reached=false;
- try{const res=await fetch(path,{method:body===undefined?'GET':'POST',headers:{'Content-Type':'application/json',...(auth?{'Authorization':'Bearer '+auth}:{})},...(body===undefined?{}:{body:JSON.stringify(body)}),signal:AbortSignal.timeout(10000)});const data=await res.json();reached=true;
+ try{const res=await fetch(path,{method:body===undefined?'GET':'POST',headers:{'Content-Type':'application/json',...(auth?{'Authorization':'Bearer '+auth}:{})},...(body===undefined?{}:{body:JSON.stringify(body)}),signal:AbortSignal.timeout(10000)});const data=await readServiceResponse(res);reached=true;
   if(watching){const recovered=connectionState!=='online';connectionState='online';lastContact=Date.now();renderConnection();if(recovered)toast('接続が復旧しました。盤面を同期します。');}
   if(!res.ok)throw new Error(data.error||'接続できませんでした。');return data;
  }catch(e){if(watching&&!reached){connectionState=navigator.onLine===false?'offline':'reconnecting';renderConnection();}throw e;}
+ }catch(error){if(quotaFromPayload(error))showServiceQuota(error);throw error;}
 }
 let matchToken=null,matchBusy=false,cancelMatchRequested=false;
 async function startMatch(){
+ if(serviceQuota){open('quota-dialog');return;}
  if(matchToken)return;
  cancelMatchRequested=false;matchToken=crypto.randomUUID()+crypto.randomUUID();sessionStorage.setItem('awai-match',matchToken);
  open('match-dialog');void syncMatch();
 }
 async function syncMatch(cancel=false){
- if(!matchToken)return;
+ if(!matchToken||serviceQuota)return;
  if(matchBusy){if(cancel)cancelMatchRequested=true;return;}
  cancelMatchRequested=cancel;matchBusy=true;
  try{
   const data=await request(cancel?'/api/matchmaking/cancel':'/api/matchmaking',{},matchToken);
-  if(data.status==='matched'){
-   await enter({...data,token:matchToken});
-   sessionStorage.removeItem('awai-match');matchToken=null;cancelMatchRequested=false;$('match-dialog').close();
-   toast('対戦相手が見つかりました。');
-  }else if(cancel){sessionStorage.removeItem('awai-match');matchToken=null;cancelMatchRequested=false;$('match-dialog').close();}
-  else $('match-status').textContent='相手の参加を待っています。この画面を開いたままお待ちください。';
+  await handleMatch(data);
+  if(data.status==='waiting'&&data.transport==='websocket'&&!matchChannel&&matchToken){
+   matchChannel=new RealtimeChannel('/api/matchmaking/socket',matchToken,{onQuota:showServiceQuota,onState:data=>{void handleMatch(data);},onStatus:status=>{if(matchToken)$('match-status').textContent=status==='online'?'相手の参加を待っています。この画面を開いたままお待ちください。':'接続を再試行しています。';}});
+  }
  }catch(e){$('match-status').textContent='接続を再試行しています：'+e.message;}
- finally{matchBusy=false;}
+ finally{matchBusy=false;if(cancelMatchRequested&&!cancel&&matchToken)void syncMatch(true);}
+}
+async function handleMatch(data){
+ if(!matchToken||enteringMatch)return;
+ if(data.status==='matched'){
+  enteringMatch=true;try{await enter({...data,token:matchToken});sessionStorage.removeItem('awai-match');matchToken=null;cancelMatchRequested=false;matchChannel?.close();matchChannel=null;$('match-dialog').close();toast('対戦相手が見つかりました。');}finally{enteringMatch=false;}
+ }else if(data.status==='cancelled'){sessionStorage.removeItem('awai-match');matchToken=null;cancelMatchRequested=false;matchChannel?.close();matchChannel=null;$('match-dialog').close();}
+ else $('match-status').textContent='相手の参加を待っています。この画面を開いたままお待ちください。';
 }
 $('cancel-match').onclick=()=>{cancelMatchRequested=true;void syncMatch(true);};
 $('match-dialog').addEventListener('cancel',e=>{e.preventDefault();$('cancel-match').click();});
-setInterval(()=>{if(matchToken)void syncMatch(cancelMatchRequested);},2000);
+setInterval(()=>{if(matchToken&&!matchChannel)void syncMatch(cancelMatchRequested);},2000);
 function saveRoom(){sessionStorage.setItem('awai-room',JSON.stringify({code:room.code,token:room.token}));}
 async function enter(data){
  gameSession++;
  connectionState='online';lastContact=Date.now();
- room={...data};mode='online';started=true;side=data.side;game=data.game;draft=data.ownPlan||[];selection=null;doubleActive=draft.length===2;locked=data.ready[side];passing=false;resolving=false;cpu=null;cpuAt=null;offset=data.serverTime-Date.now();deadline=data.deadline;saveRoom();$('setup-dialog').close();$('share-code').textContent=data.code;render();if(!data.joined)open('room-dialog');else void ensureClock();
+ room={...data};mode='online';started=true;side=data.side;game=data.game;draft=data.ownPlan||[];selection=null;doubleActive=draft.length===2;locked=data.ready[side];passing=false;resolving=false;cpu=null;cpuAt=null;offset=data.serverTime-Date.now();deadline=data.deadline;saveRoom();connectRoom();$('setup-dialog').close();$('share-code').textContent=data.code;render();if(!data.joined)open('room-dialog');else void ensureClock();
 }
 async function ensureClock(){
- if(!room?.joined||deadline!==null||startingClock||resolving||game.winner!==null)return;
+ if(serviceQuota||!room?.joined||deadline!==null||startingClock||resolving||game.winner!==null)return;
  startingClock=true;const code=room.code,round=game.round;
- try{const data=await request(`/api/rooms/${code}/ready`,{round});if(room?.code===code)await accept(data);}catch(e){toast('持ち時間の開始を再試行しています。');}finally{startingClock=false;}
+ try{const data=await request(`/api/rooms/${code}/ready`,{round});if(room?.code===code)await accept(data);}catch(e){if(!serviceQuota)toast('持ち時間の開始を再試行しています。');}finally{startingClock=false;}
 }
-async function accept(data){
- if(!room||data.version<(room.version||0)||data.game.round<game.round)return;const old=game,token=room.token,reconnected=room.presence?.[1-side]==='disconnected'&&data.presence?.[1-side]==='online';room={...data,token};offset=data.serverTime-Date.now();deadline=data.deadline;if(reconnected)toast('相手が再接続しました。');
+function accept(data){const task=roomStateChain.then(()=>applyRoomState(data));roomStateChain=task.catch(()=>{});return task;}
+async function applyRoomState(data){
+ if(!room||data.code!==room.code||data.version<(room.version||0)||data.game.round<game.round)return;const old=game,token=room.token,reconnected=room.presence?.[1-side]==='disconnected'&&data.presence?.[1-side]==='online';room={...data,token};offset=data.serverTime-Date.now();deadline=data.deadline;if(reconnected)toast('相手が再接続しました。');
  if(data.joined)$('room-dialog').close();
  if(data.game.round>old.round){draft=[];locked=false;doubleActive=false;passing=false;if(data.game.round===old.round+1)await animate(data.game);else{game=data.game;render();if(game.winner!==null)showResult();}}
  else{const justEnded=old.winner===null&&data.game.winner!==null;game=data.game;locked=data.ready[side];if(locked)draft=data.ownPlan||[];render();if(justEnded)showResult();}
@@ -263,11 +301,12 @@ async function createOrJoin(join){if(roomBusy)return;roomBusy=true;$('create-roo
 $('create-room').onclick=()=>createOrJoin(false);$('join-room').onclick=()=>createOrJoin(true);$('room-code').onkeydown=e=>{if(e.key==='Enter')void createOrJoin(true);};
 $('copy-code').onclick=async()=>{try{await navigator.clipboard.writeText(room.code);toast('ルームコードをコピーしました。');}catch{toast('コードを選択してコピーしてください：'+room.code);}};
 setInterval(()=>{renderClock();renderConnection();if(!started||resolving||game.winner!==null||room)return;if(cpu===null&&Date.now()>=cpuAt){cpu=validatePlan(game,1-side,cpuPlan(game,1-side));render();resolveCPU();}if(Date.now()>=deadline){if(!locked){draft=[];locked=true;selection=null;pendingPromotion=null;$('promote-dialog').close();toast('時間切れのため、パスになりました。');}if(cpu===null)cpu=[];resolveCPU();}},200);
-async function pollRoom(){if(!room||polling||submitting||resolving||game.winner!==null)return;polling=true;const code=room.code;try{const data=await request(`/api/rooms/${code}`);if(!submitting&&room?.code===code)await accept(data);}catch(e){if(Date.now()-lastErrorAt>15000){toast('接続を再試行しています：'+e.message);lastErrorAt=Date.now();}}finally{polling=false;}}
-setInterval(pollRoom,1000);
+async function pollRoom(){if(serviceQuota)return;if(room?.transport==='websocket'){void roomChannel?.resume();return;}if(!room||polling||submitting||resolving||game.winner!==null)return;polling=true;const code=room.code;try{const data=await request(`/api/rooms/${code}`);if(!submitting&&room?.code===code)await accept(data);}catch(e){if(!serviceQuota&&Date.now()-lastErrorAt>15000){toast('接続を再試行しています：'+e.message);lastErrorAt=Date.now();}}finally{polling=false;}}
+setInterval(()=>{if(room?.transport!=='websocket')void pollRoom();},1000);
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'){void pollRoom();void matchChannel?.resume();}});
 window.addEventListener('offline',()=>{connectionState='offline';renderConnection();});
-window.addEventListener('online',()=>{connectionState='reconnecting';renderConnection();void pollRoom();});
+window.addEventListener('online',()=>{connectionState='reconnecting';renderConnection();void pollRoom();void matchChannel?.resume();});
 render();
-try{const saved=JSON.parse(sessionStorage.getItem('awai-room')||'null');if(saved?.code&&saved?.token){room=saved;const data=await request(`/api/rooms/${saved.code}`);await enter({...data,token:saved.token});if(game.winner!==null)showResult();}}catch{room=null;sessionStorage.removeItem('awai-room');toast('前のルームに接続できませんでした。新しい対局を作れます。');}
+try{const saved=JSON.parse(sessionStorage.getItem('awai-room')||'null');if(saved?.code&&saved?.token){room=saved;const data=await request(`/api/rooms/${saved.code}`);await enter({...data,token:saved.token});if(game.winner!==null)showResult();}}catch(error){room=null;if([403,404].includes(error.status)||error instanceof SyntaxError){sessionStorage.removeItem('awai-room');toast('前のルームは利用できません。新しい対局を作れます。');}else if(quotaFromPayload(error))showServiceQuota(error);else toast('前のルームに接続できません。参加情報は残しています。時間をおいて再読み込みしてください。');}
 
-if(!room){const savedMatch=sessionStorage.getItem('awai-match');if(savedMatch){matchToken=savedMatch;mode='random';render();open('match-dialog');void syncMatch();}}else sessionStorage.removeItem('awai-match');
+if(!serviceQuota){if(!room){const savedMatch=sessionStorage.getItem('awai-match');if(savedMatch){matchToken=savedMatch;mode='random';render();open('match-dialog');void syncMatch();}}else sessionStorage.removeItem('awai-match');}

@@ -16,6 +16,7 @@ export function draftPieceSelection(game,side,plan,at){
  if(!plan.length)return null;
  const source=plan.findIndex(m=>!m.drop&&m.from===at);
  const context=draftEditContext(game,side,plan,source<0?plan.length-1:source);
+ if(context.draft[0]?.drop&&context.draft[0].to===at)return null;
  const piece=context.board.board[at];if(piece?.s!==side)return null;
  return {...context,selection:{from:at,id:piece.id},piece};
 }

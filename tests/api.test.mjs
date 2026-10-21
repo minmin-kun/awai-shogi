@@ -13,6 +13,13 @@ test('online API accepts a blocked reservation and resolves using the actual exe
  const executed=(await call(store,path+'/plan',{round:1,plan:[{from:22,to:21}]},a.token)).data;
  assert.equal(executed.game.board[40].id,100);assert(executed.game.last[1].ok);
 });
+test('online API rejects moving a first-move drop without consuming the double move',async()=>{
+ const {store,a,b,path}=await players();const room=store.data.get(a.code).room;
+ room.game.hands[1].R=1;
+ const rejected=await call(store,path+'/plan',{round:1,plan:[{drop:'R',to:40},{from:40,to:49,id:999}]},b.token);
+ assert.equal(rejected.status,400);assert.match(rejected.data.error,/二手打ち/);assert.equal(room.game.doubleUsed,false);assert.equal(room.plans[1],null);
+ const accepted=await call(store,path+'/plan',{round:1,plan:[{drop:'R',to:40},{from:18,to:27}]},b.token);assert.equal(accepted.status,200);
+});
 test('next-round clocks remain stopped until animation acknowledgement, then grant 30 seconds',async t=>{
  t.mock.timers.enable({apis:['Date'],now:1800000000000});
  const {store,a,b,path}=await players();
